@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config LORA_RAK3172
+	bool "Lora Rak3172"
+	select MODEM
+	select MODEM_CONTEXT
+	select MODEM_CMD_HANDLER
+	select MODEM_IFACE_UART
+	select LORA
+	select HWINFO
+	help
+	  Enable Lora Rak3172 driver
+
+if LORA_RAK3172
+
+config RAK_MDM_RING_BUF_SIZE
+	int "Modem ring buffer size"
+	default 1024
+	help
+	  Ring buffer size used by modem UART interface handler.
+
+config RAK_RX_STACK_SIZE
+	int "Stack size for the modem RX thread"
+	default 1024
+	help
+	  This stack is used by RX thread.
+
+config RAK_WORKQ_STACK_SIZE
+	int "Stack size for the modem workq"
+	default 1024
+	help
+	  This stack is used by the workq
+
+
+config RAK_RX_THREAD_PRIORITY
+	int "Priority of RX thread"
+	default 7
+	help
+	  Priority of thread used for processing RX data.
+
+config RAK_WORKQ_THREAD_PRIORITY
+	int "Priority of RX thread"
+	default 7
+	help
+	  Priority of thread used for processing RX data.
+
+config RAK_MDM_RX_BUF_SIZE
+	int "Modem RX buffer size"
+	default 128
+	help
+	  Size of preallocated RX buffers used by modem command handler.
+
+config RAK_MDM_RX_BUF_COUNT
+	int "Modem RX buffer count"
+	default 30
+	help
+	  Number of preallocated RX buffers used by modem command handler.
+
+config RAK_DEV_EUI_LEN
+	int "Device EUI"
+	default 16
+	help
+	  String size of device unique identifier
+
+config RAK_APP_EUI_LEN
+	int "APP EUI LEN"
+	default 16
+	help
+	  String size of application unique identifier
+config RAK_APP_EUI
+	string "APP EUI"
+	default "4a6f736570682041"
+	help
+	  String size of application unique identifier
+
+config RAK_APP_KEY_LEN
+	int "Application Key"
+	default 32
+	help
+	  String size of application key identifier
+
+
+endif # LORA_RAK3172

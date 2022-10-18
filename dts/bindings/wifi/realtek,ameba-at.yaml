@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: Realtek WiFi Modem
+
+compatible: "realtek,ameba-at"
+
+include: uart-device.yaml
+
+properties:
+    label:
+      required: true
+
+    power-gpios:
+      type: phandle-array
+      required: false
+

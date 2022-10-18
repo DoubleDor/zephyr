@@ -1,0 +1,5 @@
+
+
+if WIFI
+rsource "ameba_at/Kconfig"
+endif # WIFI

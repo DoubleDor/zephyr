@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: rak3172 lora modem
+
+compatible: "rak,rak3172"
+
+include: uart-device.yaml
+
+properties:
+    label:
+      required: true
+
+    mdm-reset-gpios:
+      type: phandle-array
+      required: true
+
+    mdm-power-gpios:
+      type: phandle-array
+      required: false
+
