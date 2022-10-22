@@ -7,9 +7,6 @@ compatible: "rak,rak3172"
 include: uart-device.yaml
 
 properties:
-    label:
-      required: true
-
     mdm-reset-gpios:
       type: phandle-array
       required: true

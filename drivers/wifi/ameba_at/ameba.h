@@ -1,17 +1,20 @@
 /*
+ * Copyright (c) 2019 Tobias Svehagen
+ * Copyright (c) 2020 Grinn
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #ifndef ZEPHYR_INCLUDE_DRIVERS_WIFI_AMEBA_AT_H_
 #define ZEPHYR_INCLUDE_DRIVERS_WIFI_AMEBA_AT_H_
 
-#include <kernel.h>
-#include <net/net_context.h>
-#include <net/net_if.h>
-#include <net/net_ip.h>
-#include <net/net_pkt.h>
-#include <net/wifi_mgmt.h>
-#include <net/socket.h>
+#include <zephyr/kernel.h>
+#include <zephyr/net/net_context.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/wifi_mgmt.h>
+#include <zephyr/net/socket.h>
 
 #include "modem_context.h"
 #include "modem_cmd_handler.h"
@@ -368,7 +371,7 @@ static inline enum net_sock_type ameba_socket_type(struct ameba_socket *sock)
 
 static inline enum net_ip_protocol ameba_socket_ip_proto(struct ameba_socket *sock)
 {
-	return net_context_get_ip_proto(sock->context);
+	return net_context_get_proto(sock->context);
 }
 
 static inline int ameba_cmd_send(struct ameba_data *data,

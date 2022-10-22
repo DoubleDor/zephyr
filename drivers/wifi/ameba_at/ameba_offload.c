@@ -1,22 +1,23 @@
 /*
+ * Copyright (c) 2019 Tobias Svehagen
+ * Copyright (c) 2020 Grinn
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ameba_offload, CONFIG_WIFI_LOG_LEVEL);
 
-#include <zephyr.h>
-#include <kernel.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 
-#include <net/net_pkt.h>
-#include <net/net_if.h>
-#include <net/net_offload.h>
-#include <net/socket_offload.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_offload.h>
+#include <zephyr/net/socket_offload.h>
 
 #include "ameba.h"
 

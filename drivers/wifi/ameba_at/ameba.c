@@ -1,58 +1,43 @@
 /*
+ * Copyright (c) 2019 Tobias Svehagen
+ * Copyright (c) 2020 Grinn
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #define DT_DRV_COMPAT realtek_ameba_at
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ameba, CONFIG_WIFI_LOG_LEVEL);
 
-#include <kernel.h>
 #include <ctype.h>
 #include <errno.h>
-#include <zephyr.h>
-#include <device.h>
-#include <init.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/init.h>
 #include <stdlib.h>
 
-#include <pm/pm.h>
-#include <pm/device.h>
+#include <zephyr/pm/pm.h>
+#include <zephyr/pm/device.h>
 
-#include <drivers/gpio.h>
-#include <drivers/uart.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/uart.h>
 
-#include <net/dns_resolve.h>
-#include <net/net_if.h>
-#include <net/net_ip.h>
-#include <net/net_offload.h>
-#include <net/wifi_mgmt.h>
+#include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_ip.h>
+#include <zephyr/net/net_offload.h>
+#include <zephyr/net/wifi_mgmt.h>
 
 #include "ameba.h"
 
-
 /* pin settings */
-enum modem_control_pins {
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
-	AMEBA_POWER,
+static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, power_gpios);
 #endif
 #if DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	AMEBA_RESET,
+static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios);
 #endif
-	NUM_PINS,
-};
-
-static struct modem_pin modem_pins[] = {
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, power_gpios),
-		  DT_INST_GPIO_PIN(0, power_gpios),
-		  DT_INST_GPIO_FLAGS(0, power_gpios) | GPIO_OUTPUT_INACTIVE),
-#endif
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, reset_gpios),
-		  DT_INST_GPIO_PIN(0, reset_gpios),
-		  DT_INST_GPIO_FLAGS(0, reset_gpios) | GPIO_OUTPUT_INACTIVE),
-#endif
-};
 
 NET_BUF_POOL_DEFINE(mdm_recv_pool, MDM_RECV_MAX_BUF, MDM_RECV_BUF_SIZE,
 		    0, NULL);
@@ -433,7 +418,7 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
 
 	if (endptr == &ipd_buf[data_len_offset]){
-		LOG_ERR("Invalid IPD len: %s", log_strdup(ipd_buf));
+		LOG_ERR("Invalid IPD len: %s", ipd_buf);
 		return -EBADMSG;
 	}
 
@@ -697,9 +682,9 @@ static void ameba_init_work(struct k_work *work)
 	LOG_DBG("Initializaing Work");
 	static const struct setup_cmd setup_cmds[] = {
 		SETUP_CMD("AT", AMEBA_CMD_OK("AT"), on_cmd_ok, 0, ""),
-#if !CONFIG_WIFI_LOG_LEVEL_DBG // TODO: Disabling wifi echo causes parsing to fail
+#if !CONFIG_WIFI_LOG_LEVEL_DBG
 		/* turn off echo */
-		// SETUP_CMD("ATSE=0,0x0,0x0", AMEBA_CMD_OK("ATSE"), on_cmd_ok, 0, ""),
+		SETUP_CMD("ATSE=0,0x0,0x0", AMEBA_CMD_OK("ATSE"), on_cmd_ok, 0, ""),
 #endif
 //TODO
 #if DT_INST_NODE_HAS_PROP(0, target_speed)
@@ -789,13 +774,13 @@ static void ameba_reset(struct ameba_data *dev)
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	LOG_DBG("Toggling Power Ping");
-	modem_pin_write(&dev->mctx, AMEBA_POWER, 0);
+	gpio_pin_set_dt(&power_gpio, 0);
 	k_sleep(K_MSEC(100));
-	modem_pin_write(&dev->mctx, AMEBA_POWER, 1);
+	gpio_pin_set_dt(&power_gpio, 1);
 #elif DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	modem_pin_write(&dev->mctx, AMEBA_RESET, 1);
+	gpio_pin_set_dt(&reset_gpio, 1);
 	k_sleep(K_MSEC(100));
-	modem_pin_write(&dev->mctx, AMEBA_RESET, 0);
+	gpio_pin_set_dt(&reset_gpio, 0);
 // #endif
 #else
 	int ret;
@@ -832,7 +817,7 @@ static void ameba_iface_init(struct net_if *iface)
 }
 
 static const struct net_wifi_mgmt_offload ameba_api = {
-	.iface_api.init = ameba_iface_init,
+	.wifi_iface.init = ameba_iface_init,
 	.scan		= ameba_mgmt_scan,
 	.connect	= ameba_mgmt_connect,
 	.disconnect	= ameba_mgmt_disconnect,
@@ -894,9 +879,20 @@ static int ameba_init(const struct device *dev)
 	}
 
 	/* pin setup */
-	data->mctx.pins = modem_pins;
-	data->mctx.pins_len = ARRAY_SIZE(modem_pins);
-
+#if DT_INST_NODE_HAS_PROP(0, power_gpios)
+	ret = gpio_pin_configure_dt(&power_gpio, GPIO_OUTPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "power");
+		goto error;
+	}
+#endif
+#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
+	ret = gpio_pin_configure_dt(&reset_gpio, GPIO_OUTPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "reset");
+		goto error;
+	}
+#endif
 	data->mctx.driver_data = data;
 
 	ret = modem_context_register(&data->mctx);
@@ -925,7 +921,6 @@ error:
 static int ameba_pm_turn_off(struct ameba_data *data )
 {
 	int ret;
-	LOG_DBG("PM_DEVICE_ACTION_TURN_OFF");
 	if(data->flags)
 	{
 		LOG_ERR("Module is not idle %x", data->flags);
@@ -949,7 +944,7 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	// shutdown the power
-	modem_pin_write(&data->mctx, AMEBA_POWER, 0);
+	gpio_pin_set_dt(&power_gpio, 0);
 #endif
 
 	ret = net_if_down(data->net_iface);
@@ -975,7 +970,7 @@ static int ameba_pm_turn_on(struct ameba_data *data )
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	// shutdown the power
-	modem_pin_write(&data->mctx, AMEBA_POWER, 1);
+	gpio_pin_set_dt(&power_gpio, 1);
 #endif
 
 	return 0;
@@ -988,17 +983,18 @@ static int ameba_pm_action(const struct device *dev,
 	int ret;
 
 	switch (action) {
-	case PM_DEVICE_ACTION_TURN_OFF:
+	case PM_DEVICE_ACTION_SUSPEND:
 		/* device must be uninitialized */
 
 		ret = ameba_pm_turn_off(data);
 		break;
-	case PM_DEVICE_ACTION_TURN_ON:
+	case PM_DEVICE_ACTION_RESUME:
 		/* device must be uninitialized */
 		ret = ameba_pm_turn_on(data);
 		
 		break;
 	default:
+		LOG_DBG("Action %d not supported", action);
 		return -ENOTSUP;
 	}
 

@@ -1,20 +1,21 @@
 /*
- * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2019 Manivannan Sadhasivam
+ * Copyright (c) 2020 Grinn
  *
- * WARNING: This driver is a WIP
+ * SPDX-License-Identifier: Apache-2.0
  */
 #define DT_DRV_COMPAT rak_rak3172
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(rak3172, CONFIG_LORA_LOG_LEVEL);
 
-#include <pm/pm.h>
-#include <pm/device.h>
+#include <zephyr/pm/pm.h>
+#include <zephyr/pm/device.h>
 
-#include <drivers/gpio.h>
-#include <drivers/lora.h>
-#include <drivers/uart.h>
-#include <drivers/hwinfo.h>
-#include <zephyr.h>
+#include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/lora.h>
+#include <zephyr/drivers/uart.h>
+#include <zephyr/drivers/hwinfo.h>
+#include <zephyr/kernel.h>
 #include <lorawan_module.h>
 #include <string.h>
 #include "rak3172.h"
@@ -24,6 +25,11 @@ LOG_MODULE_REGISTER(rak3172, CONFIG_LORA_LOG_LEVEL);
 #include "modem_iface_uart.h"
 
 static const struct device *lora_uart_dev = DEVICE_DT_GET(DT_INST_BUS(0));
+
+static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_reset_gpios);
+#if DT_INST_NODE_HAS_PROP(0, mdm_power_gpios)
+static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, mdm_power_gpios);
+#endif
 
 typedef struct
 {
@@ -62,26 +68,6 @@ NET_BUF_POOL_DEFINE(mdm_recv_pool,
 	CONFIG_RAK_MDM_RX_BUF_SIZE,
 	0,
 	NULL);
-
-enum mdm_control_pins {
-	MDM_RESET = 0,
-#if DT_INST_NODE_HAS_PROP(0, mdm_power_gpios)
-	MDM_POWER,
-#endif
-
-};
-
-static struct modem_pin modem_pins[] = {
-	/* MDM_RESET */
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_reset_gpios),
-		  DT_INST_GPIO_PIN(0, mdm_reset_gpios),
-		  DT_INST_GPIO_FLAGS(0, mdm_reset_gpios) | GPIO_OUTPUT),
-#if DT_INST_NODE_HAS_PROP(0, mdm_power_gpios)
-	MODEM_PIN(DT_INST_GPIO_LABEL(0, mdm_power_gpios),
-		  DT_INST_GPIO_PIN(0, mdm_power_gpios),
-		  DT_INST_GPIO_FLAGS(0, mdm_power_gpios) | GPIO_OUTPUT)
-#endif
-};
 
 static int rak3172_lora_config(const struct device *dev,
 	struct lora_modem_config *config)
@@ -656,8 +642,21 @@ static int rak3172_lora_init(const struct device *dev)
 	}
 
 	/* pin setup */
-	data->mctx.pins = modem_pins;
-	data->mctx.pins_len = ARRAY_SIZE(modem_pins);
+
+#if DT_INST_NODE_HAS_PROP(0, mdm_power_gpios)
+	ret = gpio_pin_configure_dt(&power_gpio, GPIO_OUTPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "power");
+		goto clean_uart_init;
+	}
+#endif
+
+	ret = gpio_pin_configure_dt(&reset_gpio, GPIO_OUTPUT);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure %s pin", "reset");
+		goto clean_uart_init;
+	}
+
 	data->mctx.driver_data = data;
 	ret = modem_context_register(&data->mctx);
 	if (ret < 0) {
@@ -675,14 +674,14 @@ static int rak3172_lora_init(const struct device *dev)
 	k_thread_name_set(&modem_rx_thread, "rak_rx");
 
 #if DT_INST_NODE_HAS_PROP(0, mdm_power_gpios)
-	modem_pin_write(&data->mctx, MDM_POWER, 1);
+	gpio_pin_set_dt(&power_gpio, 1);
 	k_sleep(K_MSEC(500));
 #endif
 
 	// Lock here, and unlock after intiailized
-	modem_pin_write(&data->mctx, MDM_RESET, 0);
+	gpio_pin_set_dt(&reset_gpio, 0);
 	k_sleep(K_MSEC(1));
-	modem_pin_write(&data->mctx, MDM_RESET, 1);
+	gpio_pin_set_dt(&reset_gpio, 1);
 
 	if(k_sem_take(&data->sem_response, K_SECONDS(5)))
 	{
