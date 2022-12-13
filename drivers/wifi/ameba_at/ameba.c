@@ -320,7 +320,7 @@ MODEM_CMD_DEFINE(on_cmd_wifi_disconnected)
 		cmd_handler_data);
 
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
-		LOG_ERR("Invalid Disconnect State")
+		LOG_ERR("Invalid Disconnect State");
 		return 0;
 	}
 
