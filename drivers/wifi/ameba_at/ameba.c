@@ -320,6 +320,7 @@ MODEM_CMD_DEFINE(on_cmd_wifi_disconnected)
 		cmd_handler_data);
 
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
+		LOG_ERR("Invalid Disconnect State")
 		return 0;
 	}
 
@@ -422,6 +423,10 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 		&& end != ':' 
 		&& match_len == MAX_RECV_LEN)
 	{
+		LOG_ERR("Header Parse Fail %d,%d : %s", 
+			*data_offset, 
+			match_len, 
+			log_strdup(ipd_buf));
 		return -EBADMSG;
 	}
 	if(end != ':')
@@ -645,6 +650,8 @@ static int ameba_mgmt_disconnect(const struct device *dev)
 	struct ameba_data *data = dev->data;
 	int ret;
 	ret = ameba_cmd_send(data, NULL, 0, "ATWD", K_NO_WAIT);
+	if(ret)
+		LOG_ERR("Disconnect Failed (%d)", ret);
 	return ret;
 }
 
