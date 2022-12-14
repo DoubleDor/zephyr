@@ -118,7 +118,7 @@ static int _sock_connect(struct ameba_data *dev, struct ameba_socket *sock)
 						  NET_CONTEXT_CONNECTED);
 		}
 	} else if (ret == -ETIMEDOUT) {
-		LOG_ERR("Connect timed out");
+		LOG_ERR("Connect timed out %s", connect_msg);
 		/* FIXME:
 		 * What if the connection finishes after we return from
 		 * here? The caller might think that it can discard the
