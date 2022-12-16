@@ -220,6 +220,12 @@ void ameba_socket_close(struct ameba_socket *sock)
 	k_mutex_lock(&dev->directed_lock, K_FOREVER);
 	dev->directed_sock = sock;
 
+	if (sock->link_id == 0 || sock->link_id > AMEBA_MAX_SOCKETS)
+	{
+		LOG_ERR("Invalid link id %d", sock->link_id);
+		return;
+	}
+
 	snprintk(cmd_buf, sizeof(cmd_buf), "ATPD=%d", sock->link_id);
 	
 	ret = ameba_cmd_send(dev, cmds, ARRAY_SIZE(cmds), cmd_buf, AMEBA_CMD_TIMEOUT);

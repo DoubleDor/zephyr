@@ -111,7 +111,7 @@ static int _sock_connect(struct ameba_data *dev, struct ameba_socket *sock)
 	dev->directed_sock = sock;
 
 	ret = ameba_cmd_send(dev, cmds, ARRAY_SIZE(cmds), connect_msg, AMEBA_CMD_TIMEOUT);
-	if (ret == 0) {
+	if (ret == 0 && dev->directed_sock->link_id > 0 && dev->directed_sock->link_id <= AMEBA_MAX_SOCKETS) {
 		ameba_socket_flags_set(sock, AMEBA_SOCK_CONNECTED);
 		if (ameba_socket_type(sock) == SOCK_STREAM) {
 			net_context_set_state(sock->context,
@@ -125,6 +125,8 @@ static int _sock_connect(struct ameba_data *dev, struct ameba_socket *sock)
 		 * socket. Set some flag to indicate that the link should
 		 * be closed if it ever connects?
 		 */
+	} else {
+		LOG_ERR("Invalid link id %d", dev->directed_sock->link_id);
 	}
 	dev->directed_sock = NULL;
 	k_mutex_unlock(&dev->directed_lock);
@@ -431,9 +433,8 @@ void ameba_close_work(struct k_work *work)
 	struct ameba_socket *sock = CONTAINER_OF(work, struct ameba_socket,
 						   close_work);
 	atomic_val_t old_flags;
-	LOG_DBG("ameba_close_work");
+	LOG_DBG("Closing Socket");
 
-	sock->link_id = 0;
 	old_flags = ameba_socket_flags_clear(sock,
 				(AMEBA_SOCK_CONNECTED | AMEBA_SOCK_CLOSE_PENDING));
 
@@ -452,6 +453,8 @@ void ameba_close_work(struct k_work *work)
 		}
 		k_mutex_unlock(&sock->lock);
 	}
+
+	sock->link_id = 0;
 
 	LOG_DBG("Done with ameba_close_work");
 }

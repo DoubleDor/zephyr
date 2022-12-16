@@ -68,7 +68,7 @@ extern "C" {
 #define CONN_CMD_MAX_LEN (sizeof("AT+"_CWJAP"=\"\",\"\"") + \
 			  WIFI_SSID_MAX_LEN + WIFI_PSK_MAX_LEN)
 
-#define AMEBA_MAX_SOCKETS 5
+#define AMEBA_MAX_SOCKETS	5
 
 /* Maximum amount that can be sent with CIPSEND and read with CIPRECVDATA */
 #define AMEBA_MTU		2048
