@@ -875,8 +875,7 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 	LOG_DBG("PM_DEVICE_ACTION_TURN_OFF");
 	if(data->flags)
 	{
-		LOG_ERR("Module is not idle %x", data->flags);
-		return -EBUSY;
+		LOG_WRN("Shutdown on a bad state (0x%x)", data->flags);
 	}
 	ret = 0;
 	while(!net_if_is_up(data->net_iface) && ret < 10)
