@@ -349,141 +349,11 @@ MODEM_CMD_DEFINE(on_cmd_ready)
 	return 0;
 }
 
-/**
- * [ATPR] OK,<data size>,<con_id>[,<dst_ip>,<dst_port>]:<data>
- */
-
-#define MIN_RECV_LEN (sizeof("[ATPR] OK,X,X:") - 1)
-#define MAX_RECV_LEN (sizeof("[ATPR] OK,65535,X,XXX.XXX.XXX.XXX,65535:") - 1)
-
-static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
-			     uint8_t *link_id,
-			     int *data_offset, int *data_len)
-{
-	char *endptr, ipd_buf[MAX_RECV_LEN + 1];
-	size_t frags_len;
-	size_t match_len;
-	int data_len_offset = 0;
-	int link_id_offset = 0;
-	char end = 0;
-
-	frags_len = net_buf_frags_len(buf);
-
-	/* Wait until minimum cmd length is available */
-	if (frags_len < MIN_RECV_LEN) {
-		return -EAGAIN;
-	}
-	match_len = net_buf_linearize(ipd_buf, MAX_RECV_LEN,
-				      buf, 0, MAX_RECV_LEN);
-
-	*data_offset = MAX_RECV_LEN;
-	for(size_t i = 0; i < match_len; i++)
-	{
-		if(ipd_buf[i] == ':')
-		{
-			end = ipd_buf[i];
-			*data_offset = i+1;
-			break;
-		}
-		else if(ipd_buf[i] == ',')
-		{
-			if(data_len_offset == 0)
-				data_len_offset = i+1;
-			else if(link_id_offset == 0)
-				link_id_offset = i+1;
-		}
-	}
-	if(*data_offset == MAX_RECV_LEN 
-		&& end != ':' 
-		&& match_len == MAX_RECV_LEN)
-	{
-		LOG_ERR("Header Parse Fail %d,%d : %s", 
-			*data_offset, 
-			match_len, 
-			log_strdup(ipd_buf));
-		return -EBADMSG;
-	}
-	if(end != ':')
-	{
-		return -EAGAIN;
-	}
-
-	*link_id = ipd_buf[link_id_offset] - '0';
-	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
-
-	if (endptr == &ipd_buf[data_len_offset]){
-		LOG_ERR("Invalid IPD len: %s", log_strdup(ipd_buf));
-		return -EBADMSG;
-	}
-
-	return 0;
-}
-
-MODEM_CMD_DIRECT_DEFINE(on_cmd_recv)
-{
-	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
-						cmd_handler_data);
-	struct ameba_socket *sock;
-	int data_offset, data_len;
-	uint8_t link_id;
-	int err;
-	int ret;
-	err = cmd_recv_parse_hdr(data->rx_buf, len, &link_id, &data_offset, &data_len);
-	if (err) {
-		if (err == -EAGAIN) {
-			return -EAGAIN;
-		}
-		return len;
-	}
-
-	sock = ameba_socket_ref_from_link_id(dev, link_id);
-	if (!sock) {
-		LOG_ERR("No socket for link %d size: %d", link_id, data_len);
-		return len;
-	}
-
-	if (data_offset + data_len > net_buf_frags_len(data->rx_buf)) {
-		ret = -EAGAIN;
-		// LOG_ERR("Trying again");
-		goto socket_unref;
-	}
-	ameba_socket_rx(sock, data->rx_buf, data_offset, data_len);
-	ret = data_offset + data_len;
-
-socket_unref:
-	ameba_socket_unref(sock);
-
-
-	return ret;
-}
-
-
-
-MODEM_CMD_DEFINE(on_cmd_recv_fail)
-{
-	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
-		cmd_handler_data);
-	int ret;
-
-	ret = strtol(argv[0], NULL, 10);
-
-	if(ret == AMEBA_RECV_ERR_LOST)
-	{
-		k_work_submit_to_queue(&dev->workq, &dev->clean_work);
-	}
-	else
-	{
-		LOG_ERR("receive fail: %d", ret);
-	}
-
-
-	return 0;
-}
 
 static const struct modem_cmd unsol_cmds[] = {
 	MODEM_CMD("AT COMMAND READY", on_cmd_ready, 0U, ""),
-	MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
-	MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
+	// MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
+	// MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
 };
 
 static void ameba_mgmt_scan_work(struct k_work *work)
@@ -669,7 +539,7 @@ static void ameba_init_work(struct k_work *work)
 #endif
 		// enable auto connect
 		SETUP_CMD("ATPG=0", AMEBA_CMD_OK("ATPG"), on_cmd_ok, 0, ""),
-		SETUP_CMD("ATPK=1", AMEBA_CMD_OK("ATPK"), on_cmd_ok, 0, ""),
+		SETUP_CMD("ATPK=0", AMEBA_CMD_OK("ATPK"), on_cmd_ok, 0, ""),
 		// query wifi info
 		SETUP_CMD("ATW?", "ST", on_cmd_wifi_info, 6U, ","),
 	};

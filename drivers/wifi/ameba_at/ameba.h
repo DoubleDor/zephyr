@@ -141,7 +141,7 @@ struct ameba_socket {
 
 	/* work */
 	struct k_work connect_work;
-	struct k_work send_work;
+	struct k_work recv_work;
 	struct k_work close_work;
 
 	/* TX packets fifo */
@@ -230,6 +230,25 @@ void ameba_socket_workq_stop_and_flush(struct ameba_socket *sock);
 struct ameba_socket *ameba_socket_ref(struct ameba_socket *sock);
 void ameba_socket_unref(struct ameba_socket *sock);
 
+static inline void ameba_flags_to_string(struct ameba_socket *sock)
+{
+	atomic_val_t flags = atomic_get(&sock->flags);
+	if(flags & AMEBA_SOCK_IN_USE)
+		LOG_DBG("Socket %d: AMEBA_SOCK_IN_USE", sock->link_id);
+	if(flags & AMEBA_SOCK_CONNECTING)
+		LOG_DBG("Socket %d: AMEBA_SOCK_CONNECTING", sock->link_id);
+	if(flags & AMEBA_SOCK_CONNECTED)
+		LOG_DBG("Socket %d: AMEBA_SOCK_CONNECTED", sock->link_id);
+	if(flags & AMEBA_SOCK_CLOSE_PENDING)
+		LOG_DBG("Socket %d: AMEBA_SOCK_CLOSE_PENDING", sock->link_id);
+	if(flags & AMEBA_SOCK_WORKQ_STOPPED)
+		LOG_DBG("Socket %d: AMEBA_SOCK_WORKQ_STOPPED", sock->link_id);
+	if(flags & AMEBA_SOCK_RX_OCCURRED)
+		LOG_DBG("Socket %d: AMEBA_SOCK_RX_OCCURRED", sock->link_id);
+	if(flags & AMEBA_SOCK_WILL_CLEAN)
+		LOG_DBG("Socket %d: AMEBA_SOCK_WILL_CLEAN", sock->link_id);
+}
+
 static inline
 struct ameba_socket *ameba_socket_ref_from_link_id(struct ameba_data *data,
 					       uint8_t link_id)
@@ -251,7 +270,6 @@ static inline atomic_val_t ameba_socket_flags_update(struct ameba_socket *sock,
 						   atomic_val_t mask)
 {
 	atomic_val_t flags;
-
 	do {
 		flags = atomic_get(&sock->flags);
 	} while (!atomic_cas(&sock->flags, flags, (flags & ~mask) | value));
@@ -325,15 +343,13 @@ static inline int ameba_socket_work_submit(struct ameba_socket *sock,
 	return ret;
 }
 
-static inline int ameba_socket_queue_tx(struct ameba_socket *sock,
-				      struct net_pkt *pkt)
+static inline int ameba_socket_queue_rx(struct ameba_socket *sock)
 {
 	int ret = -EBUSY;
 
 	k_mutex_lock(&sock->lock, K_FOREVER);
 	if (!(ameba_socket_flags(sock) & AMEBA_SOCK_WORKQ_STOPPED)) {
-		k_fifo_put(&sock->tx_fifo, pkt);
-		__ameba_socket_work_submit(sock, &sock->send_work);
+		__ameba_socket_work_submit(sock, &sock->recv_work);
 		ret = 0;
 	}
 	k_mutex_unlock(&sock->lock);
@@ -383,7 +399,7 @@ static inline int ameba_cmd_send(struct ameba_data *data,
 
 void ameba_connect_work(struct k_work *work);
 void ameba_close_work(struct k_work *work);
-void ameba_send_work(struct k_work *work);
+void ameba_recv_work(struct k_work *work);
 void ameba_socket_clean_work(struct k_work *work);
 
 void ameba_register_socket_offload(struct ameba_data *data);
