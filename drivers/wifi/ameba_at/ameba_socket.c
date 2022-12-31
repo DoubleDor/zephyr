@@ -89,7 +89,6 @@ void ameba_socket_init(struct ameba_data *data)
 		k_work_init(&sock->connect_work, ameba_connect_work);
 		k_work_init(&sock->close_work, ameba_close_work);
 		k_work_init(&sock->recv_work, ameba_recv_work);
-		k_fifo_init(&sock->tx_fifo);
 	}
 }
 
