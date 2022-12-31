@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ameba.h"
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ameba_socket, CONFIG_WIFI_LOG_LEVEL);
+#include "ameba.h"
 
 #define RX_NET_PKT_ALLOC_TIMEOUT				\
 	K_MSEC(CONFIG_WIFI_AMEBA_AT_RX_NET_PKT_ALLOC_TIMEOUT)
@@ -88,8 +88,7 @@ void ameba_socket_init(struct ameba_data *data)
 		k_sem_init(&sock->sem_data_ready, 0, 1);
 		k_work_init(&sock->connect_work, ameba_connect_work);
 		k_work_init(&sock->close_work, ameba_close_work);
-		k_work_init(&sock->send_work, ameba_send_work);
-		k_fifo_init(&sock->tx_fifo);
+		k_work_init(&sock->recv_work, ameba_recv_work);
 	}
 }
 
@@ -220,6 +219,12 @@ void ameba_socket_close(struct ameba_socket *sock)
 	k_mutex_lock(&dev->directed_lock, K_FOREVER);
 	dev->directed_sock = sock;
 
+	if (sock->link_id == 0 || sock->link_id > AMEBA_MAX_SOCKETS)
+	{
+		LOG_ERR("Invalid link id %d", sock->link_id);
+		return;
+	}
+
 	snprintk(cmd_buf, sizeof(cmd_buf), "ATPD=%d", sock->link_id);
 	
 	ret = ameba_cmd_send(dev, cmds, ARRAY_SIZE(cmds), cmd_buf, AMEBA_CMD_TIMEOUT);
@@ -231,7 +236,7 @@ void ameba_socket_close(struct ameba_socket *sock)
 	k_mutex_unlock(&dev->directed_lock);
 }
 
-static void esp_workq_flush_work(struct k_work *work)
+static void ameba_workq_flush_work(struct k_work *work)
 {
 	struct esp_workq_flush_data *flush =
 		CONTAINER_OF(work, struct esp_workq_flush_data, work);
@@ -243,7 +248,7 @@ void ameba_socket_workq_stop_and_flush(struct ameba_socket *sock)
 {
 	struct esp_workq_flush_data flush;
 
-	k_work_init(&flush.work, esp_workq_flush_work);
+	k_work_init(&flush.work, ameba_workq_flush_work);
 	k_sem_init(&flush.sem, 0, 1);
 
 	k_mutex_lock(&sock->lock, K_FOREVER);
