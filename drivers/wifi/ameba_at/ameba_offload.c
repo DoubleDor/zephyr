@@ -52,8 +52,6 @@ MODEM_CMD_DEFINE(on_cmd_connect)
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&dev->sem_response);
 
-k_work_submit_to_queue(&dev->workq, &dev->clean_work);
-
 	return 0;
 }
 

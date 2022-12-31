@@ -144,9 +144,6 @@ struct ameba_socket {
 	struct k_work recv_work;
 	struct k_work close_work;
 
-	/* TX packets fifo */
-	struct k_fifo tx_fifo;
-
 	/* net context */
 	struct net_context *context;
 	net_context_connect_cb_t connect_cb;

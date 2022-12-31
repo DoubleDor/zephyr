@@ -352,8 +352,6 @@ MODEM_CMD_DEFINE(on_cmd_ready)
 
 static const struct modem_cmd unsol_cmds[] = {
 	MODEM_CMD("AT COMMAND READY", on_cmd_ready, 0U, ""),
-	// MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
-	// MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
 };
 
 static void ameba_mgmt_scan_work(struct k_work *work)
