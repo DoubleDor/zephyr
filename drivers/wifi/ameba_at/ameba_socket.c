@@ -27,10 +27,10 @@ struct ameba_socket *ameba_socket_get(struct ameba_data *data,
 			/* here we should configure all the stuff needed */
 			sock->context = context;
 			context->offload_context = sock;
-
+			k_mutex_lock(&sock->lock, K_FOREVER);
 			sock->connect_cb = NULL;
 			sock->recv_cb = NULL;
-			
+			k_mutex_unlock(&sock->lock);
 			atomic_inc(&sock->refcount);
 			return sock;
 		}
