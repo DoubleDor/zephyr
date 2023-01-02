@@ -644,7 +644,7 @@ static int ameba_recv(struct net_context *context,
 	if(timeout)
 		LOG_WRN("ameba_rcv has to: %d", timeout);
 
-
+	k_mutex_lock(&sock->lock, K_FOREVER);
 	// HTTP bug fix: there's a case where http support needs rx to report end of file
 	if(!(flags & AMEBA_SOCK_RX_OCCURRED) 
 	  && !cb 
@@ -654,8 +654,6 @@ static int ameba_recv(struct net_context *context,
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
-
-	k_mutex_lock(&sock->lock, K_FOREVER);
 	sock->recv_cb = cb;
 	sock->recv_user_data = user_data;
 	k_sem_reset(&sock->sem_data_ready);
@@ -709,7 +707,6 @@ static int ameba_put(struct net_context *context)
 	sock->context = NULL;
 
 	ameba_socket_put(sock);
-
 	return 0;
 }
 
