@@ -34,7 +34,7 @@ static int ameba_bind(struct net_context *context, const struct sockaddr *addr,
 	return -EAFNOSUPPORT;
 }
 
-static int esp_listen(struct net_context *context, int backlog)
+static int ameba_listen(struct net_context *context, int backlog)
 {
 	LOG_DBG("");
 	return -ENOTSUP;
@@ -52,7 +52,6 @@ MODEM_CMD_DEFINE(on_cmd_connect)
 	
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&dev->sem_response);
-
 
 	return 0;
 }
@@ -112,20 +111,22 @@ static int _sock_connect(struct ameba_data *dev, struct ameba_socket *sock)
 	dev->directed_sock = sock;
 
 	ret = ameba_cmd_send(dev, cmds, ARRAY_SIZE(cmds), connect_msg, AMEBA_CMD_TIMEOUT);
-	if (ret == 0) {
+	if (ret == 0 && dev->directed_sock->link_id > 0 && dev->directed_sock->link_id <= AMEBA_MAX_SOCKETS) {
 		ameba_socket_flags_set(sock, AMEBA_SOCK_CONNECTED);
 		if (ameba_socket_type(sock) == SOCK_STREAM) {
 			net_context_set_state(sock->context,
 						  NET_CONTEXT_CONNECTED);
 		}
 	} else if (ret == -ETIMEDOUT) {
-		LOG_ERR("Connect timed out");
+		LOG_ERR("Connect timed out %s", connect_msg);
 		/* FIXME:
 		 * What if the connection finishes after we return from
 		 * here? The caller might think that it can discard the
 		 * socket. Set some flag to indicate that the link should
 		 * be closed if it ever connects?
 		 */
+	} else {
+		LOG_ERR("Invalid link id %d", dev->directed_sock->link_id);
 	}
 	dev->directed_sock = NULL;
 	k_mutex_unlock(&dev->directed_lock);
@@ -280,7 +281,6 @@ static int _sock_send(struct ameba_socket *sock, struct net_pkt *pkt)
 	}
 
 	LOG_DBG("waiting for response");
-	/* Wait for 'SEND OK' or 'SEND FAIL' */
 	ret = k_sem_take(&dev->sem_response, AMEBA_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("No send response");
@@ -292,76 +292,187 @@ static int _sock_send(struct ameba_socket *sock, struct net_pkt *pkt)
 		LOG_ERR("Failed to send data");
 	}
 	LOG_DBG("Getting error %d", ret);
+
 out:
 	(void)modem_cmd_handler_update_cmds(&dev->cmd_handler_data,
 						NULL, 0U, false);
 	k_sem_give(&dev->cmd_handler_data.sem_tx_lock);
+	
+	// Queue RX if no issues with send
+	if(!ret)
+		ameba_socket_queue_rx(sock);
 
 	LOG_DBG("Returning with val %d", ret);
 	return ret;
 }
 
-static bool ameba_socket_can_send(struct ameba_socket *sock)
-{
-	atomic_val_t flags = ameba_socket_flags(sock);
+/**
+ * [ATPR] OK,<data size>,<con_id>[,<dst_ip>,<dst_port>]:<data>
+ */
 
-	if ((flags & AMEBA_SOCK_CONNECTED) && !(flags & AMEBA_SOCK_CLOSE_PENDING)) {
-		return true;
+#define MIN_RECV_LEN (sizeof("[ATPR] OK,X,X:") - 1)
+#define MAX_RECV_LEN (sizeof("[ATPR] OK,65535,X,XXX.XXX.XXX.XXX,65535:") - 1)
+
+static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
+			     uint8_t *link_id,
+			     int *data_offset, int *data_len)
+{
+	char *endptr, ipd_buf[MAX_RECV_LEN + 1];
+	size_t frags_len;
+	size_t match_len;
+	int data_len_offset = 0;
+	int link_id_offset = 0;
+	char end = 0;
+
+	frags_len = net_buf_frags_len(buf);
+
+	/* Wait until minimum cmd length is available */
+	if (frags_len < MIN_RECV_LEN) {
+		return -EAGAIN;
+	}
+	match_len = net_buf_linearize(ipd_buf, MAX_RECV_LEN,
+				      buf, 0, MAX_RECV_LEN);
+
+	*data_offset = MAX_RECV_LEN;
+	for(size_t i = 0; i < match_len; i++)
+	{
+		if(ipd_buf[i] == ':')
+		{
+			end = ipd_buf[i];
+			*data_offset = i+1;
+			break;
+		}
+		else if(ipd_buf[i] == ',')
+		{
+			if(data_len_offset == 0)
+				data_len_offset = i+1;
+			else if(link_id_offset == 0)
+				link_id_offset = i+1;
+		}
+	}
+	if(*data_offset == MAX_RECV_LEN 
+		&& end != ':' 
+		&& match_len == MAX_RECV_LEN)
+	{
+		LOG_ERR("Header Parse Fail %d,%d : %s", 
+			*data_offset, 
+			match_len, 
+			log_strdup(ipd_buf));
+		return -EBADMSG;
+	}
+	if(end != ':')
+	{
+		return -EAGAIN;
 	}
 
-	return false;
+	*link_id = ipd_buf[link_id_offset] - '0';
+	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
+
+	if (endptr == &ipd_buf[data_len_offset]){
+		LOG_ERR("Invalid IPD len: %s", log_strdup(ipd_buf));
+		return -EBADMSG;
+	}
+
+	return 0;
 }
 
-static int ameba_socket_send_one_pkt(struct ameba_socket *sock)
+
+MODEM_CMD_DIRECT_DEFINE(on_cmd_recv)
 {
-	struct net_context *context = sock->context;
-	struct net_pkt *pkt;
+	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
+						cmd_handler_data);
+	struct ameba_socket *sock;
+	int data_offset, data_len;
+	uint8_t link_id;
+	int err;
+	int ret = len;
+	err = cmd_recv_parse_hdr(data->rx_buf, len, &link_id, &data_offset, &data_len);
+	if (err) {
+		if (err == -EAGAIN) {
+			return -EAGAIN;
+		}
+		return len;
+	}
+
+	if(data_len == 0)
+	{
+		modem_cmd_handler_set_error(data, 0);
+		k_sem_give(&dev->sem_response);
+		return len;
+	}
+
+	sock = ameba_socket_ref_from_link_id(dev, link_id);
+	if (!sock) {
+		LOG_ERR("No socket for link %d size: %d", link_id, data_len);
+		return len;
+	}
+
+	if (data_offset + data_len > net_buf_frags_len(data->rx_buf)) {
+		ret = -EAGAIN;
+		// LOG_ERR("Trying again");
+		goto socket_unref;
+	}
+	ameba_socket_rx(sock, data->rx_buf, data_offset, data_len);
+	ret = data_offset + data_len;
+	
+	modem_cmd_handler_set_error(data, 0);
+	k_sem_give(&dev->sem_response);
+
+socket_unref:
+	ameba_socket_unref(sock);
+
+	return ret;
+}
+
+
+
+MODEM_CMD_DEFINE(on_cmd_recv_fail)
+{
+	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
+		cmd_handler_data);
 	int ret;
 
-	pkt = k_fifo_get(&sock->tx_fifo, K_NO_WAIT);
-	if (!pkt) {
-		return -ENOMSG;
-	}
+	ret = strtol(argv[0], NULL, 10);
+	modem_cmd_handler_set_error(data, ret);
+	k_sem_give(&dev->sem_response);
 
-	if (!ameba_socket_can_send(sock)) {
-		goto pkt_unref;
-	}
-
-	ret = _sock_send(sock, pkt);
-	if (ret < 0) {
-		LOG_ERR("Failed to send data: link %d, ret %d",
-			sock->link_id, ret);
-		/*
-		 * If this is stream data, then we should stop pushing anything
-		 * more to this socket, as there will be a hole in the data
-		 * stream, which application layer is not expecting.
-		 */
-		if (ameba_socket_type(sock) == SOCK_STREAM) {
-			if (!ameba_socket_flags_test_and_set(sock,
-						AMEBA_SOCK_CLOSE_PENDING)) {
-				ameba_socket_work_submit(sock, &sock->close_work);
-			}
-		}
-	} else if (context->send_cb) {
-		context->send_cb(context, ret, context->user_data);
-	}
-
-pkt_unref:
-	net_pkt_unref(pkt);
-	return  0;
+	return 0;
 }
 
-void ameba_send_work(struct k_work *work)
+void ameba_recv_work(struct k_work *work)
 {
 	struct ameba_socket *sock = CONTAINER_OF(work, struct ameba_socket,
-						   send_work);
-	int err;
+						   recv_work);
+	struct ameba_data *data = ameba_socket_to_dev(sock);
+	int rx_count = 0;
+	atomic_val_t flags;
+
+	LOG_DBG("RX Started");
+	static const struct modem_cmd cmds[] = {
+		MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
+		MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
+	};
+	int ret;
+
+	char cmd_buf[sizeof("ATPR=X,XXXX")];
+	snprintk(cmd_buf, sizeof(cmd_buf),
+		"ATPR=%d,1500", sock->link_id);
 
 	do {
-		err = ameba_socket_send_one_pkt(sock);
-	} while (err != -ENOMSG);
+		k_sleep(K_MSEC(50));
+		ret = ameba_cmd_send(data,
+			   cmds, ARRAY_SIZE(cmds),
+			   cmd_buf,
+			   AMEBA_CMD_TIMEOUT);
+		rx_count++;
+		flags = ameba_socket_flags(sock);
+	}while (ret == 0 && rx_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
+
+	k_work_submit_to_queue(&data->workq, &data->clean_work);
+	LOG_DBG("RX Done");
 
 }
+
 
 static int ameba_sendto(struct net_pkt *pkt,
 			  const struct sockaddr *dst_addr,
@@ -374,49 +485,49 @@ static int ameba_sendto(struct net_pkt *pkt,
 	struct ameba_socket *sock;
 	struct ameba_data *dev;
 	int ret = 0;
+	atomic_val_t flags;
 
 	context = pkt->context;
 	sock = (struct ameba_socket *)context->offload_context;
 	dev = ameba_socket_to_dev(sock);
 
-	LOG_DBG("link %d, timeout %d", sock->link_id, timeout);
-
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
+		LOG_ERR("Station not connected");
 		return -ENETUNREACH;
 	}
-
-	if (ameba_socket_type(sock) == SOCK_STREAM) {
-		atomic_val_t flags = ameba_socket_flags(sock);
-
-		if (!(flags & AMEBA_SOCK_CONNECTED) ||
-			 (flags & AMEBA_SOCK_CLOSE_PENDING)) {
-			LOG_ERR("Socket not connected");
-			return -ENOTCONN;
-		}
-	} else {
-		if (!ameba_socket_connected(sock)) {
-			if (!dst_addr) {
-				return -ENOTCONN;
-			}
-
-			/* Use a timeout of 5000 ms here even though the
-			 * timeout parameter might be different. We want to
-			 * have a valid link id before proceeding.
-			 */
-			ret = ameba_connect(context, dst_addr, addrlen, NULL,
-					  (5 * MSEC_PER_SEC), NULL);
-			if (ret < 0) {
-				return ret;
-			}
-		} else if (dst_addr && memcmp(dst_addr, &sock->dst, addrlen)) {
-			/* This might be unexpected behaviour but the ESP
-			 * doesn't support changing endpoint.
-			 */
-			return -EISCONN;
-		}
+	flags = ameba_socket_flags(sock);
+	if (ameba_socket_type(sock) != SOCK_STREAM) {
+		
+		LOG_ERR("Socket is not set to streaming");
+		ret = -ENOTSUP;
+		goto pkt_unref;
+	} else if (!(flags & AMEBA_SOCK_CONNECTED) ||
+			(flags & AMEBA_SOCK_CLOSE_PENDING)) {
+		LOG_ERR("Socket not connected");
+		ret = -ENOTCONN;
+		goto pkt_unref;
 	}
 
-	return ameba_socket_queue_tx(sock, pkt);
+	ret = _sock_send(sock, pkt);
+	if (ret < 0) {
+		LOG_ERR("Failed to send data: link %d, ret %d",
+			sock->link_id, ret);
+		/*
+		 * If this is stream data, then we should stop pushing anything
+		 * more to this socket, as there will be a hole in the data
+		 * stream, which application layer is not expecting.
+		 */
+		if (!ameba_socket_flags_test_and_set(sock,
+					AMEBA_SOCK_CLOSE_PENDING)) {
+			ameba_socket_work_submit(sock, &sock->close_work);
+		}
+	} else if (context->send_cb) {
+		context->send_cb(context, ret, context->user_data);
+	}
+
+pkt_unref:
+	net_pkt_unref(pkt);
+	return ret;
 }
 
 static int ameba_send(struct net_pkt *pkt,
@@ -432,9 +543,8 @@ void ameba_close_work(struct k_work *work)
 	struct ameba_socket *sock = CONTAINER_OF(work, struct ameba_socket,
 						   close_work);
 	atomic_val_t old_flags;
-	LOG_DBG("ameba_close_work");
+	LOG_DBG("Closing Socket");
 
-	sock->link_id = 0;
 	old_flags = ameba_socket_flags_clear(sock,
 				(AMEBA_SOCK_CONNECTED | AMEBA_SOCK_CLOSE_PENDING));
 
@@ -453,6 +563,8 @@ void ameba_close_work(struct k_work *work)
 		}
 		k_mutex_unlock(&sock->lock);
 	}
+
+	sock->link_id = 0;
 
 	LOG_DBG("Done with ameba_close_work");
 }
@@ -488,6 +600,7 @@ MODEM_CMD_DEFINE(on_cmd_atpi)
 		flags = ameba_socket_flags(sock);
 		if(flags & AMEBA_SOCK_WILL_CLEAN)
 		{
+			ameba_socket_flags_clear(sock, AMEBA_SOCK_WILL_CLEAN);
 			ameba_socket_work_submit(sock, &sock->close_work);
 		}
 		i++;
@@ -529,27 +642,28 @@ static int ameba_recv(struct net_context *context,
 	if(!(flags & AMEBA_SOCK_CONNECTED))
 		return -ENOTCONN;
 
+	if(timeout)
+		LOG_WRN("ameba_rcv has to: %d", timeout);
+
+	k_mutex_lock(&sock->lock, K_FOREVER);
 	// HTTP bug fix: there's a case where http support needs rx to report end of file
 	if(!(flags & AMEBA_SOCK_RX_OCCURRED) 
 	  && !cb 
-	  && sock->recv_cb 
-	  && timeout == 0)
+	  && sock->recv_cb)
 	{
+		LOG_WRN("RX HAS NOT OCCURRED");
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
-
-	k_mutex_lock(&sock->lock, K_FOREVER);
 	sock->recv_cb = cb;
 	sock->recv_user_data = user_data;
 	k_sem_reset(&sock->sem_data_ready);
+	// TODO: there has never been a case where timeout was not 0
 	k_mutex_unlock(&sock->lock);
 
 	if (timeout == 0) {
 		return 0;
 	}
-
-
 	ret = k_sem_take(&sock->sem_data_ready, K_MSEC(timeout));
 
 	k_mutex_lock(&sock->lock, K_FOREVER);
@@ -565,6 +679,7 @@ static int ameba_put(struct net_context *context)
 	struct ameba_socket *sock = context->offload_context;
 	ameba_socket_workq_stop_and_flush(sock);
 
+	ameba_flags_to_string(sock);
 	if (ameba_socket_flags_test_and_clear(sock, AMEBA_SOCK_CONNECTED)) {
 		ameba_socket_close(sock);
 	}
@@ -593,7 +708,6 @@ static int ameba_put(struct net_context *context)
 	sock->context = NULL;
 
 	ameba_socket_put(sock);
-
 	return 0;
 }
 
@@ -637,7 +751,7 @@ static int ameba_get(sa_family_t family,
 static struct net_offload ameba_offload = {
 	.get	       = ameba_get,
 	.bind	       = ameba_bind,
-	.listen	       = esp_listen,
+	.listen	       = ameba_listen,
 	.connect       = ameba_connect,
 	.accept	       = ameba_accept,
 	.send	       = ameba_send,

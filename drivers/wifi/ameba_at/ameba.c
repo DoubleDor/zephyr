@@ -53,21 +53,6 @@ K_KERNEL_STACK_DEFINE(ameba_workq_stack,
 
 struct ameba_data ameba_driver_data;
 
-
-static void esp_configure_hostname(struct ameba_data *data)
-{
-#if defined(CONFIG_NET_HOSTNAME_ENABLE)
-	char cmd[sizeof("AT+CWHOSTNAME=\"\"") + NET_HOSTNAME_MAX_LEN];
-
-	snprintk(cmd, sizeof(cmd), "AT+CWHOSTNAME=\"%s\"", net_hostname_get());
-	cmd[sizeof(cmd) - 1] = '\0';
-
-	ameba_cmd_send(data, NULL, 0, cmd, AMEBA_CMD_TIMEOUT);
-#else
-	ARG_UNUSED(data);
-#endif
-}
-
 static inline uint8_t ameba_mode_from_flags(struct ameba_data *data)
 {
 	uint8_t flags = data->flags;
@@ -123,8 +108,6 @@ static int ameba_mode_switch(struct ameba_data *data, uint8_t mode)
 		LOG_WRN("Failed to switch to mode %d: %d", (int) mode, err);
 	}
 
-	
-
 	return err;
 }
 
@@ -144,13 +127,6 @@ static int ameba_mode_switch_if_needed(struct ameba_data *data)
 	err = ameba_mode_switch(data, new_mode);
 	if (err) {
 		return err;
-	}
-
-	if (!(old_mode & AMEBA_MODE_STA) && (new_mode & AMEBA_MODE_STA)) {
-		/*
-		 * Hostname change is applied only when STA is enabled.
-		 */
-		esp_configure_hostname(data);
 	}
 
 	return 0;
@@ -176,14 +152,12 @@ static void ameba_mode_switch_work(struct k_work *work)
 static inline int ameba_mode_flags_set(struct ameba_data *data, uint8_t flags)
 {
 	ameba_flags_set(data, flags);
-
 	return ameba_mode_switch_if_needed(data);
 }
 
 static inline int ameba_mode_flags_clear(struct ameba_data *data, uint8_t flags)
 {
 	ameba_flags_clear(data, flags);
-
 	return ameba_mode_switch_if_needed(data);
 }
 
@@ -305,6 +279,7 @@ MODEM_CMD_DEFINE(on_cmd_wifi_disconnected)
 		cmd_handler_data);
 
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
+		LOG_ERR("Invalid Disconnect State");
 		return 0;
 	}
 
@@ -359,137 +334,9 @@ MODEM_CMD_DEFINE(on_cmd_ready)
 	return 0;
 }
 
-/**
- * [ATPR] OK,<data size>,<con_id>[,<dst_ip>,<dst_port>]:<data>
- */
-
-#define MIN_RECV_LEN (sizeof("[ATPR] OK,X,X:") - 1)
-#define MAX_RECV_LEN (sizeof("[ATPR] OK,65535,X,XXX.XXX.XXX.XXX,65535:") - 1)
-
-static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
-			     uint8_t *link_id,
-			     int *data_offset, int *data_len)
-{
-	char *endptr, ipd_buf[MAX_RECV_LEN + 1];
-	size_t frags_len;
-	size_t match_len;
-	int data_len_offset = 0;
-	int link_id_offset = 0;
-	char end = 0;
-
-	frags_len = net_buf_frags_len(buf);
-
-	/* Wait until minimum cmd length is available */
-	if (frags_len < MIN_RECV_LEN) {
-		return -EAGAIN;
-	}
-	match_len = net_buf_linearize(ipd_buf, MAX_RECV_LEN,
-				      buf, 0, MAX_RECV_LEN);
-
-	*data_offset = MAX_RECV_LEN;
-	for(size_t i = 0; i < match_len; i++)
-	{
-		if(ipd_buf[i] == ':')
-		{
-			end = ipd_buf[i];
-			*data_offset = i+1;
-			break;
-		}
-		else if(ipd_buf[i] == ',')
-		{
-			if(data_len_offset == 0)
-				data_len_offset = i+1;
-			else if(link_id_offset == 0)
-				link_id_offset = i+1;
-		}
-	}
-	if(*data_offset == MAX_RECV_LEN 
-		&& end != ':' 
-		&& match_len == MAX_RECV_LEN)
-	{
-		return -EBADMSG;
-	}
-	if(end != ':')
-	{
-		return -EAGAIN;
-	}
-
-	*link_id = ipd_buf[link_id_offset] - '0';
-	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
-
-	if (endptr == &ipd_buf[data_len_offset]){
-		LOG_ERR("Invalid IPD len: %s", ipd_buf);
-		return -EBADMSG;
-	}
-
-	return 0;
-}
-
-MODEM_CMD_DIRECT_DEFINE(on_cmd_recv)
-{
-	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
-						cmd_handler_data);
-	struct ameba_socket *sock;
-	int data_offset, data_len;
-	uint8_t link_id;
-	int err;
-	int ret;
-	err = cmd_recv_parse_hdr(data->rx_buf, len, &link_id, &data_offset, &data_len);
-	if (err) {
-		if (err == -EAGAIN) {
-			return -EAGAIN;
-		}
-		return len;
-	}
-
-	sock = ameba_socket_ref_from_link_id(dev, link_id);
-	if (!sock) {
-		LOG_ERR("No socket for link %d size: %d", link_id, data_len);
-		return len;
-	}
-
-	if (data_offset + data_len > net_buf_frags_len(data->rx_buf)) {
-		ret = -EAGAIN;
-		// LOG_ERR("Trying again");
-		goto socket_unref;
-	}
-	ameba_socket_rx(sock, data->rx_buf, data_offset, data_len);
-	ret = data_offset + data_len;
-
-socket_unref:
-	ameba_socket_unref(sock);
-
-
-	return ret;
-}
-
-
-
-MODEM_CMD_DEFINE(on_cmd_recv_fail)
-{
-	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
-		cmd_handler_data);
-	int ret;
-
-	ret = strtol(argv[0], NULL, 10);
-
-	if(ret == AMEBA_RECV_ERR_LOST)
-	{
-		k_work_submit_to_queue(&dev->workq, &dev->clean_work);
-	}
-	else
-	{
-		LOG_ERR("receive fail: %d", ret);
-	}
-
-
-	return 0;
-}
 
 static const struct modem_cmd unsol_cmds[] = {
 	MODEM_CMD("AT COMMAND READY", on_cmd_ready, 0U, ""),
-	MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
-	MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
 };
 
 static void ameba_mgmt_scan_work(struct k_work *work)
@@ -561,12 +408,9 @@ static void ameba_mgmt_connect_work(struct k_work *work)
 	if (ret < 0) {
 		goto out;
 	}
-
 	ret = ameba_cmd_send(dev, cmds, ARRAY_SIZE(cmds), dev->conn_cmd,
 			   AMEBA_CONNECT_TIMEOUT);
-
 	memset(dev->conn_cmd, 0, sizeof(dev->conn_cmd));
-
 	if (ret < 0) {
 		if (ameba_flags_are_set(dev, STA_CONNECTED)) {
 			ameba_flags_clear(dev, STA_CONNECTED);
@@ -580,9 +424,7 @@ static void ameba_mgmt_connect_work(struct k_work *work)
 		ameba_flags_set(dev, STA_CONNECTED);
 		wifi_mgmt_raise_connect_result_event(dev->net_iface, 0);
 	}
-
 	ameba_mode_flags_clear(dev, STA_LOCK);
-
 out:
 	ameba_flags_clear(dev, STA_CONNECTING);
 }
@@ -630,49 +472,22 @@ static int ameba_mgmt_disconnect(const struct device *dev)
 	struct ameba_data *data = dev->data;
 	int ret;
 	ret = ameba_cmd_send(data, NULL, 0, "ATWD", K_NO_WAIT);
+	if(ret)
+		LOG_ERR("Disconnect Failed (%d)", ret);
 	return ret;
 }
 
 static int ameba_mgmt_ap_enable(const struct device *dev,
 			      struct wifi_connect_req_params *params)
 {
-	char cmd[sizeof("ATPA=\"\",\"\",xx,x") + WIFI_SSID_MAX_LEN +
-		 WIFI_PSK_MAX_LEN];
-	struct ameba_data *data = dev->data;
-	int ecn = 0, len, ret;
-
-
-	ret = ameba_mode_flags_set(data, AP_ENABLED);
-	if (ret < 0) {
-		LOG_ERR("Failed to enable AP mode, ret %d", ret);
-		return ret;
-	}
-
-	len = snprintk(cmd, sizeof(cmd), "ATPA=\"");
-	memcpy(&cmd[len], params->ssid, params->ssid_length);
-	len += params->ssid_length;
-
-	if (params->security == WIFI_SECURITY_TYPE_PSK) {
-		len += snprintk(&cmd[len], sizeof(cmd) - len, "\",\"");
-		memcpy(&cmd[len], params->psk, params->psk_length);
-		len += params->psk_length;
-		ecn = 3;
-	} else {
-		len += snprintk(&cmd[len], sizeof(cmd) - len, "\",\"");
-	}
-
-	snprintk(&cmd[len], sizeof(cmd) - len, "\",%d,0", params->channel);
-
-	ret = ameba_cmd_send(data, NULL, 0, cmd, AMEBA_CMD_TIMEOUT);
-
-	return ret;
+	LOG_ERR("AP Mode Not Supported");
+	return -1;
 }
 
 static int ameba_mgmt_ap_disable(const struct device *dev)
 {
-	struct ameba_data *data = dev->data;
-
-	return ameba_mode_flags_clear(data, AP_ENABLED);
+	LOG_ERR("AP Mode Not Supported");
+	return -1;
 }
 
 static void ameba_init_work(struct k_work *work)
@@ -707,7 +522,7 @@ static void ameba_init_work(struct k_work *work)
 #endif
 		// enable auto connect
 		SETUP_CMD("ATPG=0", AMEBA_CMD_OK("ATPG"), on_cmd_ok, 0, ""),
-		SETUP_CMD("ATPK=1", AMEBA_CMD_OK("ATPK"), on_cmd_ok, 0, ""),
+		SETUP_CMD("ATPK=0", AMEBA_CMD_OK("ATPK"), on_cmd_ok, 0, ""),
 		// query wifi info
 		SETUP_CMD("ATW?", "ST", on_cmd_wifi_info, 6U, ","),
 	};
@@ -923,8 +738,7 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 	int ret;
 	if(data->flags)
 	{
-		LOG_ERR("Module is not idle %x", data->flags);
-		return -EBUSY;
+		LOG_WRN("Shutdown on a bad state (0x%x)", data->flags);
 	}
 	ret = 0;
 	while(!net_if_is_up(data->net_iface) && ret < 10)
