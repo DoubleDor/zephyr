@@ -446,7 +446,7 @@ void ameba_recv_work(struct k_work *work)
 	int rx_count = 0;
 	atomic_val_t flags;
 
-	LOG_DBG("RX Started");
+	LOG_DBG("RX Started %d", sock->link_id);
 	static const struct modem_cmd cmds[] = {
 		MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
 		MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
@@ -468,8 +468,7 @@ void ameba_recv_work(struct k_work *work)
 	}while (ret == 0 && rx_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
 
 	k_work_submit_to_queue(&data->workq, &data->clean_work);
-	LOG_DBG("RX Done");
-
+	LOG_DBG("RX Done: %d", sock->link_id);
 }
 
 
