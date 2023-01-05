@@ -357,7 +357,7 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 		LOG_ERR("Header Parse Fail %d,%d : %s", 
 			*data_offset, 
 			match_len, 
-			log_strdup(ipd_buf));
+			ipd_buf);
 		return -EBADMSG;
 	}
 	if(end != ':')
@@ -369,7 +369,7 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
 
 	if (endptr == &ipd_buf[data_len_offset]){
-		LOG_ERR("Invalid IPD len: %s", log_strdup(ipd_buf));
+		LOG_ERR("Invalid IPD len: %s", ipd_buf);
 		return -EBADMSG;
 	}
 
