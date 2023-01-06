@@ -211,7 +211,7 @@ MODEM_CMD_DEFINE(on_cmd_send_ok)
 	if(argc < 1)
 		LOG_ERR("Failed to parse send okay");
 	else
-		LOG_DBG("Send is ok: %d", argv[0]);
+		LOG_DBG("Send is ok: %s", argv[0]);
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&dev->sem_response);
 
@@ -305,7 +305,7 @@ out:
 	if(!ret)
 		ret = ameba_socket_queue_rx(sock);
 	else
-		LOG_ERR("Failed to queue rx after send")
+		LOG_ERR("Failed to queue rx after send");
 		
 
 	LOG_DBG("Returning with val %d", ret);
