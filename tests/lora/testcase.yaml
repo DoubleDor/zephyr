@@ -1,0 +1,9 @@
+common:
+  platform_allow: dtm dtm2
+  tags: hw_test lora
+  timeout: 300
+tests:
+  net.lora:
+    build_only: false
+    depends_on: usb_device
+    platform_allow: dtm dtm2
