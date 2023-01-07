@@ -1,7 +1,7 @@
-#include <ztest.h>
-#include <logging/log.h>
+#include <zephyr/ztest.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/device.h>
-#include <drivers/lora.h>
+#include <zephyr/drivers/lora.h>
 #include <lorawan_module.h>
 
 LOG_MODULE_REGISTER(lora_test);
@@ -9,7 +9,6 @@ LOG_MODULE_REGISTER(lora_test);
 #define DEFAULT_RADIO_NODE DT_ALIAS(lora0)
 BUILD_ASSERT(DT_NODE_HAS_STATUS(DEFAULT_RADIO_NODE, okay),
 	     "No default LoRa radio specified in DT");
-#define DEFAULT_RADIO DT_LABEL(DEFAULT_RADIO_NODE)
 
 
 struct dor_lora_tests_fixture {
@@ -28,7 +27,7 @@ static void *dor_lora_tests_setup(void)
 	lorawan_join_config.mode = LORAWAN_ACT_OTAA;
 	lorawan_join_config.dev_class = LORAWAN_CLASS_A;
 
-	test_fixture.lora_module = device_get_binding(DEFAULT_RADIO);
+	test_fixture.lora_module = DEVICE_DT_GET(DEFAULT_RADIO_NODE);
 	if(!test_fixture.lora_module )
 		goto exit;
 	while(retries < 5 && (mlorawan_join(test_fixture.lora_module, &lorawan_join_config)))
