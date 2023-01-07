@@ -162,7 +162,10 @@ static int ameba_connect(struct net_context *context,
 	sock = (struct ameba_socket *)context->offload_context;
 	dev = ameba_socket_to_dev(sock);
 
-	LOG_DBG("link %d, timeout %d", sock->link_id, timeout);
+	if(sock->link_id != 0)
+	{
+		LOG_ERR("Got a link id of %d when connecting", sock->link_id);
+	}
 
 	if (!IS_ENABLED(CONFIG_NET_IPV4) || addr->sa_family != AF_INET) {
 		LOG_ERR("CONFIG_NET_IPV4 not enabled");
@@ -206,9 +209,10 @@ MODEM_CMD_DEFINE(on_cmd_send_ok)
 	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
 						cmd_handler_data);
 
-	LOG_DBG("Send is ok: %d", argc);
-	for(int i = 0; i < argc; i++)
-		LOG_DBG("%s", argv[i]);
+	if(argc < 1)
+		LOG_ERR("Failed to parse send okay");
+	else
+		LOG_DBG("Send is ok: %s", argv[0]);
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&dev->sem_response);
 
@@ -300,7 +304,10 @@ out:
 	
 	// Queue RX if no issues with send
 	if(!ret)
-		ameba_socket_queue_rx(sock);
+		ret = ameba_socket_queue_rx(sock);
+	else
+		LOG_ERR("Failed to queue rx after send");
+		
 
 	LOG_DBG("Returning with val %d", ret);
 	return ret;
@@ -409,9 +416,9 @@ MODEM_CMD_DIRECT_DEFINE(on_cmd_recv)
 
 	if (data_offset + data_len > net_buf_frags_len(data->rx_buf)) {
 		ret = -EAGAIN;
-		// LOG_ERR("Trying again");
 		goto socket_unref;
 	}
+	LOG_DBG("Link %d RXed %d bytes", sock->link_id, data_len);
 	ameba_socket_rx(sock, data->rx_buf, data_offset, data_len);
 	ret = data_offset + data_len;
 	
@@ -447,7 +454,7 @@ void ameba_recv_work(struct k_work *work)
 	int rx_count = 0;
 	atomic_val_t flags;
 
-	LOG_DBG("RX Started");
+	LOG_DBG("RX Started %d", sock->link_id);
 	static const struct modem_cmd cmds[] = {
 		MODEM_CMD(AMEBA_CMD_ERROR("ATPR"), on_cmd_recv_fail, 1U, ""),
 		MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
@@ -469,8 +476,7 @@ void ameba_recv_work(struct k_work *work)
 	}while (ret == 0 && rx_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
 
 	k_work_submit_to_queue(&data->workq, &data->clean_work);
-	LOG_DBG("RX Done");
-
+	LOG_DBG("RX Done: %d", sock->link_id);
 }
 
 
@@ -543,7 +549,7 @@ void ameba_close_work(struct k_work *work)
 	struct ameba_socket *sock = CONTAINER_OF(work, struct ameba_socket,
 						   close_work);
 	atomic_val_t old_flags;
-	LOG_DBG("Closing Socket");
+	LOG_DBG("Closing Socket w/link %d", sock->link_id);
 
 	old_flags = ameba_socket_flags_clear(sock,
 				(AMEBA_SOCK_CONNECTED | AMEBA_SOCK_CLOSE_PENDING));
@@ -564,9 +570,8 @@ void ameba_close_work(struct k_work *work)
 		k_mutex_unlock(&sock->lock);
 	}
 
+	LOG_DBG("Done w/ socket close %d", sock->link_id);
 	sock->link_id = 0;
-
-	LOG_DBG("Done with ameba_close_work");
 }
 
 MODEM_CMD_DEFINE(on_cmd_link_id_connected)
@@ -694,7 +699,6 @@ static int ameba_put(struct net_context *context)
 
 	ameba_socket_unref(sock);
 
-	LOG_DBG("acquiring sem_free %d", sock->link_id);
 	/*
 	 * Let's get notified when refcount reaches 0. Call to
 	 * ameba_socket_unref() in this function might or might not be the last
@@ -703,10 +707,7 @@ static int ameba_put(struct net_context *context)
 	 * until it finishes.
 	 */
 	k_sem_take(&sock->sem_free, K_FOREVER);
-	LOG_DBG("Done with sem_free");
-
 	sock->context = NULL;
-
 	ameba_socket_put(sock);
 	return 0;
 }

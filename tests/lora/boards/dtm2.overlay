@@ -1,0 +1,18 @@
+/ {
+	chosen {
+		zephyr,console = &uart1;
+		zephyr,shell-uart = &uart1;
+		zephyr,uart-mcumgr = &uart1;
+		zephyr,bt-mon-uart = &uart1;
+		zephyr,bt-c2h-uart = &uart1;
+	};
+};
+
+
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	tx-pin = <40>;
+	rx-pin = <7>;
+	/delete-property/ rtl8720cm;
+};
