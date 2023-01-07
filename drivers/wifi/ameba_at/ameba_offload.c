@@ -35,7 +35,7 @@ static int ameba_bind(struct net_context *context, const struct sockaddr *addr,
 
 static int ameba_listen(struct net_context *context, int backlog)
 {
-	LOG_DBG("");
+	LOG_DBG("Caling Ameba Listen");
 	return -ENOTSUP;
 }
 
@@ -570,7 +570,6 @@ void ameba_close_work(struct k_work *work)
 	}
 
 	LOG_DBG("Done w/ socket close %d", sock->link_id);
-	sock->link_id = 0;
 }
 
 MODEM_CMD_DEFINE(on_cmd_link_id_connected)
@@ -687,11 +686,11 @@ static int ameba_put(struct net_context *context)
 	if (ameba_socket_flags_test_and_clear(sock, AMEBA_SOCK_CONNECTED)) {
 		ameba_socket_close(sock);
 	}
-
 	k_mutex_lock(&sock->lock, K_FOREVER);
 
 	sock->connect_cb = NULL;
 	sock->recv_cb = NULL;
+	sock->link_id = 0;
 	k_mutex_unlock(&sock->lock);
 
 	k_sem_reset(&sock->sem_free);
