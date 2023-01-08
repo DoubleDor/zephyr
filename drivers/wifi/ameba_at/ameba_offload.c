@@ -1,22 +1,23 @@
 /*
+ * Copyright (c) 2019 Tobias Svehagen
+ * Copyright (c) 2020 Grinn
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ameba_offload, CONFIG_WIFI_LOG_LEVEL);
 
-#include <zephyr.h>
-#include <kernel.h>
-#include <device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
 
-#include <net/net_pkt.h>
-#include <net/net_if.h>
-#include <net/net_offload.h>
-#include <net/socket_offload.h>
+#include <zephyr/net/net_pkt.h>
+#include <zephyr/net/net_if.h>
+#include <zephyr/net/net_offload.h>
+#include <zephyr/net/socket_offload.h>
 
 #include "ameba.h"
 
@@ -363,7 +364,7 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 		LOG_ERR("Header Parse Fail %d,%d : %s", 
 			*data_offset, 
 			match_len, 
-			log_strdup(ipd_buf));
+			ipd_buf);
 		return -EBADMSG;
 	}
 	if(end != ':')
@@ -375,7 +376,7 @@ static int cmd_recv_parse_hdr(struct net_buf *buf, uint16_t len,
 	*data_len = strtol(&ipd_buf[data_len_offset], &endptr, 10);
 
 	if (endptr == &ipd_buf[data_len_offset]){
-		LOG_ERR("Invalid IPD len: %s", log_strdup(ipd_buf));
+		LOG_ERR("Invalid IPD len: %s", ipd_buf);
 		return -EBADMSG;
 	}
 

@@ -7,9 +7,6 @@ compatible: "realtek,ameba-at"
 include: uart-device.yaml
 
 properties:
-    label:
-      required: true
-
     power-gpios:
       type: phandle-array
       required: false
