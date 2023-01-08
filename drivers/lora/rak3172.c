@@ -551,7 +551,7 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 
 	if(k_sem_take(&dev_data->sem_response, MDM_CMD_TIMEOUT))
 	{
-		LOG_ERR("Cmd send timout");
+		LOG_ERR("Modem command time out");
 		return -3;
 	}
 
@@ -559,11 +559,15 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 	{
 
 		if(k_sem_take(&dev_data->sem_tx, MDM_SEND_TIMEOUT))
+		{
+			LOG_ERR("Modem send time out");
 			ret = -3;
-		else
+		}else
+		{
 			ret = modem_cmd_handler_get_error(&dev_data->cmd_handler_data);
-		(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
+			(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
 						NULL, 0U, false);
+		}
 	}
 
 	return ret;
@@ -583,6 +587,7 @@ int mlorawan_send(const struct device *dev, uint8_t port, uint8_t *data, uint8_t
 		if(ret)
 		{
 			k_mutex_unlock(&dev_data->lock);
+			LOG_ERR("Lora set message type fail");
 			return ret;
 		}
 		dev_data->msg_type = type;
