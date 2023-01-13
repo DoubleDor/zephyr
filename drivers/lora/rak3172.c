@@ -543,7 +543,10 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 				ARRAY_SIZE(cmds),
 				true);
 		if(ret)
+		{
+			LOG_ERR("Failed update modem cmds %d", ret);
 			return ret;
+		}
 	}
 	dev_data->mctx.iface.write(&dev_data->mctx.iface, 
 		handler_data->eol, 
@@ -565,6 +568,8 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 		}else
 		{
 			ret = modem_cmd_handler_get_error(&dev_data->cmd_handler_data);
+			if(ret)
+				LOG_ERR("cmd handler got error %d", ret);
 			(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
 						NULL, 0U, false);
 		}

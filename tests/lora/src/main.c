@@ -56,6 +56,6 @@ ZTEST_F(dor_lora_tests, test_simple_send)
 		if(ret == 0)
 			break;
 	}
-	zassert_equal(0, ret, "Packet failed to send");	
+	zassert_equal(0, ret, "Packet failed to send %d", ret);	
 
 }
