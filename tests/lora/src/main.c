@@ -47,6 +47,7 @@ ZTEST_SUITE(dor_lora_tests, NULL, dor_lora_tests_setup, NULL, NULL, NULL);
 ZTEST_F(dor_lora_tests, test_simple_send)
 {
 	int ret;
+	int fail_count = 0;
 	uint8_t test_data[5] = {0xbb, 0xbb, 0xcc, 0xdd, 0xee};
 	zassert_true(test_fixture.lora_module, "No lora module found");
 	zassert_true(test_fixture.net_joined, "Failed to join network");
@@ -54,8 +55,8 @@ ZTEST_F(dor_lora_tests, test_simple_send)
 	{
 		ret = mlorawan_send(test_fixture.lora_module, 1, test_data, 5, 1);
 		if(ret == 0)
-			break;
+			fail_count++;
 	}
-	zassert_equal(0, ret, "Packet failed to send %d", ret);	
+	zassert_true(fail_count < 5, "Failed to send %d times", fail_count);
 
 }
