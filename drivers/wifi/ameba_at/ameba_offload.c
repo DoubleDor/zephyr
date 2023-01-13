@@ -660,7 +660,7 @@ static int ameba_recv(struct net_context *context,
 	  && !cb 
 	  && sock->recv_cb)
 	{
-		LOG_WRN("RX HAS NOT OCCURRED");
+		LOG_WRN("RX HAS NOT OCCURRED %d", sock->link_id);
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
@@ -694,9 +694,9 @@ static int ameba_put(struct net_context *context)
 	}
 
 	k_mutex_lock(&sock->lock, K_FOREVER);
-
 	sock->connect_cb = NULL;
 	sock->recv_cb = NULL;
+	sock->link_id = 0;
 	k_mutex_unlock(&sock->lock);
 
 	k_sem_reset(&sock->sem_free);
