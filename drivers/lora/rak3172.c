@@ -225,13 +225,6 @@ MODEM_CMD_DEFINE(on_cmd_ok)
 
 	k_sem_give(&dev_data->sem_response);
 
-	// TODO: this is just a place holder for the driver for power saving
-	// ret = pm_device_action_run(lora_uart_dev, PM_DEVICE_ACTION_SUSPEND);
-	// if (ret)
-	// {
-	// 	LOG_ERR("Can't suspend device: %d", ret);
-	// 	return ret;
-	// }
 	return 0;
 }
 MODEM_CMD_DEFINE(on_cmd_app_eui)
@@ -569,7 +562,7 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 		{
 			ret = modem_cmd_handler_get_error(&dev_data->cmd_handler_data);
 			if(ret)
-				LOG_ERR("cmd handler got error %d", ret);
+				LOG_WRN("on_cmd_send_confirmation got error %d", ret);
 			(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
 						NULL, 0U, false);
 		}
