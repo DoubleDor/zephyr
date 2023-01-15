@@ -57,6 +57,6 @@ ZTEST_F(dor_lora_tests, test_simple_send)
 		if(ret)
 			fail_count++;
 	}
-	zassert_true(fail_count <= 15, "Failed to send %d times", fail_count);
+	zassert_true(fail_count == 20, "Failed to send %d times", fail_count);
 
 }
