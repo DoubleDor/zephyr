@@ -155,6 +155,8 @@ struct ameba_socket {
 	/* callback data */
 	void *conn_user_data;
 	void *recv_user_data;
+
+	size_t total_recv;
 };
 
 enum ameba_data_flag {

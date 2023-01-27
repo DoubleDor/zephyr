@@ -413,15 +413,15 @@ MODEM_CMD_DIRECT_DEFINE(on_cmd_recv)
 		LOG_ERR("No socket for link %d size: %d", link_id, data_len);
 		return len;
 	}
-
 	if (data_offset + data_len > net_buf_frags_len(data->rx_buf)) {
 		ret = -EAGAIN;
 		goto socket_unref;
 	}
 	LOG_DBG("Link %d RXed %d bytes", sock->link_id, data_len);
+	sock->total_recv += data_len;
 	ameba_socket_rx(sock, data->rx_buf, data_offset, data_len);
 	ret = data_offset + data_len;
-	
+
 	modem_cmd_handler_set_error(data, 0);
 	k_sem_give(&dev->sem_response);
 
@@ -452,6 +452,7 @@ void ameba_recv_work(struct k_work *work)
 						   recv_work);
 	struct ameba_data *data = ameba_socket_to_dev(sock);
 	int rx_count = 0;
+	size_t prev_recv = 0;
 	atomic_val_t flags;
 
 	LOG_DBG("RX Started %d", sock->link_id);
@@ -465,6 +466,7 @@ void ameba_recv_work(struct k_work *work)
 	snprintk(cmd_buf, sizeof(cmd_buf),
 		"ATPR=%d,1500", sock->link_id);
 
+	sock->total_recv = 0;
 	do {
 		k_sleep(K_MSEC(50));
 		ret = ameba_cmd_send(data,
@@ -473,10 +475,13 @@ void ameba_recv_work(struct k_work *work)
 			   AMEBA_CMD_TIMEOUT);
 		rx_count++;
 		flags = ameba_socket_flags(sock);
+		if(prev_recv < sock->total_recv)
+			rx_count = 0;
+		prev_recv = sock->total_recv;
 	}while (ret == 0 && rx_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
 
 	k_work_submit_to_queue(&data->workq, &data->clean_work);
-	LOG_DBG("RX Done: %d", sock->link_id);
+	LOG_DBG("RX Done: %d %d %d %d", sock->link_id, (int)sock->total_recv, rx_count, (int)(flags & AMEBA_SOCK_CONNECTED));
 }
 
 
@@ -563,6 +568,7 @@ void ameba_close_work(struct k_work *work)
 	if (old_flags & AMEBA_SOCK_CONNECTED) {
 		k_mutex_lock(&sock->lock, K_FOREVER);
 		if (sock->recv_cb) {
+			LOG_DBG("Closing out socket");
 			sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 					  sock->recv_user_data);
 			k_sem_give(&sock->sem_data_ready);
@@ -656,7 +662,7 @@ static int ameba_recv(struct net_context *context,
 	  && !cb 
 	  && sock->recv_cb)
 	{
-		LOG_WRN("RX HAS NOT OCCURRED");
+		LOG_WRN("RX HAS NOT OCCURRED %d", sock->link_id);
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
@@ -690,9 +696,9 @@ static int ameba_put(struct net_context *context)
 	}
 
 	k_mutex_lock(&sock->lock, K_FOREVER);
-
 	sock->connect_cb = NULL;
 	sock->recv_cb = NULL;
+	sock->link_id = 0;
 	k_mutex_unlock(&sock->lock);
 
 	k_sem_reset(&sock->sem_free);
