@@ -497,11 +497,6 @@ static void ameba_init_work(struct k_work *work)
 	LOG_DBG("Initializaing Work");
 	static const struct setup_cmd setup_cmds[] = {
 		SETUP_CMD("AT", AMEBA_CMD_OK("AT"), on_cmd_ok, 0, ""),
-#if !CONFIG_WIFI_LOG_LEVEL_DBG
-		/* turn off echo */
-		SETUP_CMD("ATSE=0,0x0,0x0", AMEBA_CMD_OK("ATSE"), on_cmd_ok, 0, ""),
-#endif
-//TODO
 #if DT_INST_NODE_HAS_PROP(0, target_speed)
 	};
 	static const struct setup_cmd setup_cmds_target_baudrate[] = {
