@@ -107,6 +107,7 @@ static struct net_pkt *ameba_socket_prepare_pkt(struct ameba_socket *sock,
 	pkt = net_pkt_rx_alloc_with_buffer(data->net_iface, len, AF_UNSPEC,
 					   0, RX_NET_PKT_ALLOC_TIMEOUT);
 	if (!pkt) {
+		LOG_ERR("Failed to prepare net pkt");
 		return NULL;
 	}
 

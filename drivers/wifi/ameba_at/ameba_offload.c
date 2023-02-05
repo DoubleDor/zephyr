@@ -461,7 +461,6 @@ void ameba_recv_work(struct k_work *work)
 		MODEM_CMD_DIRECT(AMEBA_CMD_OK("ATPR"), on_cmd_recv),
 	};
 	int ret;
-
 	char cmd_buf[sizeof("ATPR=X,XXXX")];
 	snprintk(cmd_buf, sizeof(cmd_buf),
 		"ATPR=%d,1500", sock->link_id);

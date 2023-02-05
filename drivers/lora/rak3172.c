@@ -211,13 +211,6 @@ MODEM_CMD_DEFINE(on_cmd_ok)
 
 	k_sem_give(&dev_data->sem_response);
 
-	// TODO: this is just a place holder for the driver for power saving
-	// ret = pm_device_action_run(lora_uart_dev, PM_DEVICE_ACTION_SUSPEND);
-	// if (ret)
-	// {
-	// 	LOG_ERR("Can't suspend device: %d", ret);
-	// 	return ret;
-	// }
 	return 0;
 }
 MODEM_CMD_DEFINE(on_cmd_app_eui)
@@ -529,7 +522,10 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 				ARRAY_SIZE(cmds),
 				true);
 		if(ret)
+		{
+			LOG_ERR("Failed update modem cmds %d", ret);
 			return ret;
+		}
 	}
 	dev_data->mctx.iface.write(&dev_data->mctx.iface, 
 		handler_data->eol, 
@@ -537,7 +533,7 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 
 	if(k_sem_take(&dev_data->sem_response, MDM_CMD_TIMEOUT))
 	{
-		LOG_ERR("Cmd send timout");
+		LOG_ERR("Modem command time out");
 		return -3;
 	}
 
@@ -545,11 +541,17 @@ int send_data(rak_data_t *dev_data, uint8_t port, uint8_t *data, uint8_t len)
 	{
 
 		if(k_sem_take(&dev_data->sem_tx, MDM_SEND_TIMEOUT))
+		{
+			LOG_ERR("Modem send time out");
 			ret = -3;
-		else
+		}else
+		{
 			ret = modem_cmd_handler_get_error(&dev_data->cmd_handler_data);
-		(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
+			if(ret)
+				LOG_WRN("on_cmd_send_confirmation got error %d", ret);
+			(void)modem_cmd_handler_update_cmds(&dev_data->cmd_handler_data,
 						NULL, 0U, false);
+		}
 	}
 
 	return ret;
@@ -569,6 +571,7 @@ int mlorawan_send(const struct device *dev, uint8_t port, uint8_t *data, uint8_t
 		if(ret)
 		{
 			k_mutex_unlock(&dev_data->lock);
+			LOG_ERR("Lora set message type fail");
 			return ret;
 		}
 		dev_data->msg_type = type;
