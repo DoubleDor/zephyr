@@ -1,9 +1,12 @@
 /*
+ * Copyright (c) 2019 Tobias Svehagen
+ * Copyright (c) 2020 Grinn
+ *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ameba_socket, CONFIG_WIFI_LOG_LEVEL);
 #include "ameba.h"
 
