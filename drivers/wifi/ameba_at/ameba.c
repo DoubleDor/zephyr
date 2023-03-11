@@ -313,6 +313,11 @@ MODEM_CMD_DEFINE(on_cmd_ready)
 
 	LOG_DBG("RXed CMD RDY");
 	k_sem_give(&dev->sem_if_ready);
+	if(!dev->net_iface)
+	{
+		LOG_DBG("net iface not yet set");
+		return 0;
+	}
 
 	if (net_if_is_up(dev->net_iface)) {
 		net_if_down(dev->net_iface);
@@ -574,26 +579,24 @@ static void ameba_init_work(struct k_work *work)
 	net_if_up(dev->net_iface);
 }
 
-static void ameba_reset(struct ameba_data *dev)
+static int ameba_reset(struct ameba_data *dev)
 {
 	LOG_DBG("Reseting device");
-
-	if (net_if_is_up(dev->net_iface)) {
-		net_if_down(dev->net_iface);
-	}
+	int ret = 0;
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	LOG_DBG("Toggling Power Ping");
 	gpio_pin_set_dt(&power_gpio, 0);
 	k_sleep(K_MSEC(100));
 	gpio_pin_set_dt(&power_gpio, 1);
+	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
 #elif DT_INST_NODE_HAS_PROP(0, reset_gpios)
 	gpio_pin_set_dt(&reset_gpio, 1);
 	k_sleep(K_MSEC(100));
 	gpio_pin_set_dt(&reset_gpio, 0);
-// #endif
+	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
 #else
-	int ret;
+
 	int retries = 3;
 
 	LOG_DBG("Calling Software Reset");
@@ -609,21 +612,21 @@ static void ameba_reset(struct ameba_data *dev)
 
 	if (ret < 0) {
 		LOG_ERR("Failed to reset device: %d", ret);
-		return;
+		ret = -ETIMEDOUT
 	}
 #endif
+	return ret;
 }
 
 static void ameba_iface_init(struct net_if *iface)
 {
 	const struct device *dev = net_if_get_device(iface);
 	struct ameba_data *data = dev->data;
-
-	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
 	data->net_iface = iface;
+	LOG_DBG("Ameba Iface Init");
+	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
 	ameba_offload_init(iface);
 	ameba_reset(data);
-	LOG_DBG("Done with iface init");
 }
 
 static const struct net_wifi_mgmt_offload ameba_api = {
@@ -639,7 +642,8 @@ static int ameba_init(const struct device *dev)
 {
 	struct ameba_data *data = dev->data;
 	int ret = 0;
-
+	
+	data->net_iface = NULL;
 	k_sem_init(&data->sem_tx_ready, 0, 1);
 	k_sem_init(&data->sem_response, 0, 1);
 	k_sem_init(&data->sem_if_ready, 0, 1);
@@ -722,8 +726,10 @@ static int ameba_init(const struct device *dev)
 			K_NO_WAIT);
 	k_thread_name_set(&ameba_rx_thread, "ameba_rx");
 
-	LOG_INF("Ameba wifi initialized");
+	ret = ameba_reset(data);
+	
 error:
+	LOG_INF("Ameba initialized w/ %d", ret);
 	return ret;
 }
 
