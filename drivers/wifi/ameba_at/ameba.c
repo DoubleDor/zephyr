@@ -613,7 +613,7 @@ static int ameba_reset(struct ameba_data *dev)
 
 		if (ret < 0) {
 			LOG_ERR("Failed to reset device: %d", ret);
-			ret = -ETIMEDOUT
+			ret = -ETIMEDOUT;
 		}
 	}
 
