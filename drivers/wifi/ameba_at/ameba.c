@@ -595,26 +595,28 @@ static int ameba_reset(struct ameba_data *dev)
 	k_sleep(K_MSEC(100));
 	gpio_pin_set_dt(&reset_gpio, 0);
 	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
-#else
+#endif
 
-	int retries = 3;
+	if(ret)
+	{
+		int retries = 3;
+		LOG_WRN("Trying Software Reset");
+		while (retries--) {
+			LOG_DBG("reset retry");
+			ret = modem_cmd_send(&dev->mctx.iface, &dev->mctx.cmd_handler,
+					NULL, 0, "ATSR", &dev->sem_if_ready,
+					K_MSEC(CONFIG_WIFI_AMEBA_AT_RESET_TIMEOUT));
+			if (ret == 0 || ret != -ETIMEDOUT) {
+				break;
+			}
+		}
 
-	LOG_DBG("Calling Software Reset");
-	while (retries--) {
-		LOG_DBG("reset retry");
-		ret = modem_cmd_send(&dev->mctx.iface, &dev->mctx.cmd_handler,
-				     NULL, 0, "ATSR", &dev->sem_if_ready,
-				     K_MSEC(CONFIG_WIFI_AMEBA_AT_RESET_TIMEOUT));
-		if (ret == 0 || ret != -ETIMEDOUT) {
-			break;
+		if (ret < 0) {
+			LOG_ERR("Failed to reset device: %d", ret);
+			ret = -ETIMEDOUT;
 		}
 	}
 
-	if (ret < 0) {
-		LOG_ERR("Failed to reset device: %d", ret);
-		ret = -ETIMEDOUT
-	}
-#endif
 	return ret;
 }
 
