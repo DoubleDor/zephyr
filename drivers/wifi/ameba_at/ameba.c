@@ -590,10 +590,15 @@ static int ameba_reset(struct ameba_data *dev)
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	LOG_DBG("Toggling Power Ping");
-	gpio_pin_set_dt(&power_gpio, 0);
-	k_sleep(K_MSEC(500));
-	gpio_pin_set_dt(&power_gpio, 1);
-	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
+	for(int i = 0; i < 5; i++)
+	{
+		gpio_pin_set_dt(&power_gpio, 0);
+		k_sleep(K_MSEC(i*200));
+		gpio_pin_set_dt(&power_gpio, 1);
+		ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
+		if(ret == 0)
+			break;
+	}
 #else
 	#error "power gpio is not available"
 #endif
