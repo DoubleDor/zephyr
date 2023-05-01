@@ -584,38 +584,24 @@ static int ameba_reset(struct ameba_data *dev)
 	LOG_DBG("Reseting device");
 	int ret = 0;
 
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
-	LOG_DBG("Toggling Power Ping");
-	gpio_pin_set_dt(&power_gpio, 0);
-	k_sleep(K_MSEC(100));
-	gpio_pin_set_dt(&power_gpio, 1);
-	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
-#elif DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	gpio_pin_set_dt(&reset_gpio, 1);
-	k_sleep(K_MSEC(100));
+#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 	gpio_pin_set_dt(&reset_gpio, 0);
-	ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
 #endif
 
-	if(ret)
+#if DT_INST_NODE_HAS_PROP(0, power_gpios)
+	LOG_DBG("Toggling Power Ping");
+	for(int i = 0; i < 5; i++)
 	{
-		int retries = 3;
-		LOG_WRN("Trying Software Reset");
-		while (retries--) {
-			LOG_DBG("reset retry");
-			ret = modem_cmd_send(&dev->mctx.iface, &dev->mctx.cmd_handler,
-					NULL, 0, "ATSR", &dev->sem_if_ready,
-					K_MSEC(CONFIG_WIFI_AMEBA_AT_RESET_TIMEOUT));
-			if (ret == 0 || ret != -ETIMEDOUT) {
-				break;
-			}
-		}
-
-		if (ret < 0) {
-			LOG_ERR("Failed to reset device: %d", ret);
-			ret = -ETIMEDOUT;
-		}
+		gpio_pin_set_dt(&power_gpio, 0);
+		k_sleep(K_MSEC(i*200));
+		gpio_pin_set_dt(&power_gpio, 1);
+		ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
+		if(ret == 0)
+			break;
 	}
+#else
+	#error "power gpio is not available"
+#endif
 
 	return ret;
 }
