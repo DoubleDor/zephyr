@@ -184,7 +184,7 @@ MODEM_CMD_DEFINE(on_cmd_error)
 	struct ameba_data *dev = CONTAINER_OF(data, struct ameba_data,
 					    cmd_handler_data);
 	LOG_ERR("cmd error %s", str_unquote(argv[0]));
-	ret = strtol(argv[0], NULL, 10);
+	ret = strtol(argv[0], NULL, 10) + 1000;
 	ret *= -1;
 	modem_cmd_handler_set_error(data,  ret);
 	k_sem_give(&dev->sem_response);
