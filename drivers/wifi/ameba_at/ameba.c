@@ -725,6 +725,7 @@ error:
 static int ameba_pm_turn_off(struct ameba_data *data )
 {
 	int ret;
+	LOG_INF("ameba_pm_turn_off");
 	if(data->flags)
 	{
 		LOG_WRN("Shutdown on a bad state (0x%x)", data->flags);
@@ -756,13 +757,12 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 		LOG_ERR("Failed to take down net interface");
 		return ret;
 	}
-
 	return 0;
 }
 static int ameba_pm_turn_on(struct ameba_data *data )
 {
 	int ret = 0;
-	LOG_DBG("PM_DEVICE_ACTION_TURN_ON");
+	LOG_INF("ameba_pm_turn_on");
 	uart_irq_rx_enable(data->uart);
 	ret = pm_device_action_run(data->uart, PM_DEVICE_ACTION_RESUME);
 	if (ret)
@@ -771,11 +771,11 @@ static int ameba_pm_turn_on(struct ameba_data *data )
 		return ret;
 	}
 
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
-	// shutdown the power
-	gpio_pin_set_dt(&power_gpio, 1);
-#endif
-
+	ret = ameba_reset(data);
+	if (ret)
+	{
+		LOG_WRN("Ameba reset failed with: %d", ret);
+	}
 	return 0;
 }
 
