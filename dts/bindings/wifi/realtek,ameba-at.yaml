@@ -10,4 +10,7 @@ properties:
     power-gpios:
       type: phandle-array
       required: false
+    reset-gpios:
+      type: phandle-array
+      required: false
 

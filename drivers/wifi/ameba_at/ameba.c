@@ -37,6 +37,9 @@ static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, power_gpi
 #endif
 #if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios);
+// #error "Reset gpio is set"
+#else
+#error "Reset gpio is not set"
 #endif
 
 NET_BUF_POOL_DEFINE(mdm_recv_pool, MDM_RECV_MAX_BUF, MDM_RECV_BUF_SIZE,
@@ -195,10 +198,22 @@ MODEM_CMD_DEFINE(on_cmd_error)
 /* RX thread */
 static void ameba_rx(struct ameba_data *data)
 {
-	LOG_INF("AMEBA RX INIT DONE");
+	k_timeout_t timeout;
 	while (true) {
 		/* wait for incoming data */
-		k_sem_take(&data->iface_data.rx_sem, K_FOREVER);
+		if(ameba_flags_are_set(data, (STA_CONNECTING | STA_CONNECTED | STA_LOCK)))
+			timeout = K_SECONDS(30);
+		else
+			timeout = K_FOREVER;
+		if(k_sem_take(&data->iface_data.rx_sem, timeout))
+		{
+			LOG_WRN("Timed Out on RX: 0x%x", data->flags);
+			ameba_flags_set(data, NO_RESPONSE);
+			continue;
+		} else if(ameba_flags_are_set(data, NO_RESPONSE))
+		{
+			LOG_WRN("RX Works");
+		}
 
 		data->mctx.cmd_handler.process(&data->mctx.cmd_handler,
 					       &data->mctx.iface);
@@ -476,6 +491,10 @@ static int ameba_mgmt_disconnect(const struct device *dev)
 {
 	struct ameba_data *data = dev->data;
 	int ret;
+	if (ameba_flags_are_set(data, NO_RESPONSE)) {
+		LOG_WRN("No Resp From Module");
+		return 0;
+	}
 	ret = ameba_cmd_send(data, NULL, 0, "ATWD", K_NO_WAIT);
 	if(ret)
 		LOG_ERR("Disconnect Failed (%d)", ret);
@@ -579,25 +598,50 @@ static void ameba_init_work(struct k_work *work)
 	net_if_up(dev->net_iface);
 }
 
-static int ameba_reset(struct ameba_data *dev)
+static int ameba_reset(struct ameba_data *data)
 {
 	LOG_DBG("Reseting device");
 	int ret = 0;
 
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
-	gpio_pin_set_dt(&reset_gpio, 0);
-#endif
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	LOG_DBG("Toggling Power Ping");
 	for(int i = 0; i < 5; i++)
 	{
+		LOG_INF("Reset %d", i);
 		gpio_pin_set_dt(&power_gpio, 0);
+
+#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
+		gpio_pin_set_dt(&reset_gpio, 0);
+#endif
 		k_sleep(K_MSEC(i*200));
+		if(i != 0)
+		{
+			uart_irq_rx_enable(data->uart);
+			ret = pm_device_action_run(data->uart, PM_DEVICE_ACTION_RESUME);
+			if (ret)
+			{
+				LOG_ERR("Can't resume device: %d", ret);
+				return ret;
+			}
+		}
 		gpio_pin_set_dt(&power_gpio, 1);
-		ret = k_sem_take(&dev->sem_if_ready, K_SECONDS(5));
+#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
+		gpio_pin_set_dt(&reset_gpio, 1);
+#endif
+		ret = k_sem_take(&data->sem_if_ready, K_SECONDS(5));
 		if(ret == 0)
 			break;
+
+		uart_irq_rx_disable(data->uart);
+		uart_irq_tx_disable(data->uart);
+		// uart doesn't have a shutdown mode only suspend
+		ret = pm_device_action_run(data->uart, PM_DEVICE_ACTION_SUSPEND);
+		if (ret)
+		{
+			LOG_ERR("Can't suspend device: %d", ret);
+			return ret;
+		}
 	}
 #else
 	#error "power gpio is not available"
@@ -729,6 +773,7 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 	if(data->flags)
 	{
 		LOG_WRN("Shutdown on a bad state (0x%x)", data->flags);
+		data->flags = 0;
 	}
 	ret = 0;
 	while(!net_if_is_up(data->net_iface) && ret < 10)
@@ -745,6 +790,11 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 		LOG_ERR("Can't suspend device: %d", ret);
 		return ret;
 	}
+
+
+#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
+	gpio_pin_set_dt(&reset_gpio, 0);
+#endif
 
 #if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	// shutdown the power

@@ -254,7 +254,7 @@ static int _sock_send(struct ameba_socket *sock, struct net_pkt *pkt)
 
 	pkt_len = net_pkt_get_len(pkt);
 
-	LOG_DBG("link %d, len %d", sock->link_id, pkt_len);
+	LOG_INF("link %d, len %d", sock->link_id, pkt_len);
 
 	if (ameba_socket_ip_proto(sock) == IPPROTO_TCP) {
 		snprintk(cmd_buf, sizeof(cmd_buf), "ATPT=%d,%d:",pkt_len, sock->link_id);
@@ -463,7 +463,7 @@ void ameba_recv_work(struct k_work *work)
 	int ret;
 	char cmd_buf[sizeof("ATPR=X,XXXX")];
 	snprintk(cmd_buf, sizeof(cmd_buf),
-		"ATPR=%d,1500", sock->link_id);
+		"ATPR=%d,%d", sock->link_id, AMEBA_MTU);
 
 	sock->total_recv = 0;
 	do {
