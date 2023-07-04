@@ -37,7 +37,6 @@ static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, power_gpi
 #endif
 #if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios);
-// #error "Reset gpio is set"
 #else
 #error "Reset gpio is not set"
 #endif
