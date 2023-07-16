@@ -32,14 +32,8 @@ LOG_MODULE_REGISTER(ameba, CONFIG_WIFI_LOG_LEVEL);
 #include "ameba.h"
 
 /* pin settings */
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
 static const struct gpio_dt_spec power_gpio = GPIO_DT_SPEC_INST_GET(0, power_gpios);
-#endif
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 static const struct gpio_dt_spec reset_gpio = GPIO_DT_SPEC_INST_GET(0, reset_gpios);
-#else
-#error "Reset gpio is not set"
-#endif
 
 NET_BUF_POOL_DEFINE(mdm_recv_pool, MDM_RECV_MAX_BUF, MDM_RECV_BUF_SIZE,
 		    0, NULL);
@@ -212,6 +206,7 @@ static void ameba_rx(struct ameba_data *data)
 		} else if(ameba_flags_are_set(data, NO_RESPONSE))
 		{
 			LOG_WRN("RX Works");
+			ameba_flags_clear(data, NO_RESPONSE);
 		}
 
 		data->mctx.cmd_handler.process(&data->mctx.cmd_handler,
@@ -603,16 +598,13 @@ static int ameba_reset(struct ameba_data *data)
 	int ret = 0;
 
 
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	LOG_DBG("Toggling Power Ping");
 	for(int i = 0; i < 5; i++)
 	{
 		LOG_INF("Reset %d", i);
 		gpio_pin_set_dt(&power_gpio, 0);
-
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 		gpio_pin_set_dt(&reset_gpio, 0);
-#endif
+
 		k_sleep(K_MSEC(i*200));
 		if(i != 0)
 		{
@@ -625,9 +617,7 @@ static int ameba_reset(struct ameba_data *data)
 			}
 		}
 		gpio_pin_set_dt(&power_gpio, 1);
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 		gpio_pin_set_dt(&reset_gpio, 1);
-#endif
 		ret = k_sem_take(&data->sem_if_ready, K_SECONDS(5));
 		if(ret == 0)
 			break;
@@ -642,9 +632,6 @@ static int ameba_reset(struct ameba_data *data)
 			return ret;
 		}
 	}
-#else
-	#error "power gpio is not available"
-#endif
 
 	return ret;
 }
@@ -724,20 +711,17 @@ static int ameba_init(const struct device *dev)
 	}
 
 	/* pin setup */
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	ret = gpio_pin_configure_dt(&power_gpio, GPIO_OUTPUT);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure %s pin", "power");
 		goto error;
 	}
-#endif
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
+
 	ret = gpio_pin_configure_dt(&reset_gpio, GPIO_OUTPUT);
 	if (ret < 0) {
 		LOG_ERR("Failed to configure %s pin", "reset");
 		goto error;
 	}
-#endif
 	data->mctx.driver_data = data;
 
 	ret = modem_context_register(&data->mctx);
@@ -790,15 +774,9 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 		return ret;
 	}
 
-
-#if DT_INST_NODE_HAS_PROP(0, reset_gpios)
 	gpio_pin_set_dt(&reset_gpio, 0);
-#endif
-
-#if DT_INST_NODE_HAS_PROP(0, power_gpios)
 	// shutdown the power
 	gpio_pin_set_dt(&power_gpio, 0);
-#endif
 
 	ret = net_if_down(data->net_iface);
 	if(ret)

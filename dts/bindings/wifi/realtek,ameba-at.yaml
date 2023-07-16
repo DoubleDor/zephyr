@@ -9,8 +9,8 @@ include: uart-device.yaml
 properties:
     power-gpios:
       type: phandle-array
-      required: false
+      required: true
     reset-gpios:
       type: phandle-array
-      required: false
+      required: true
 
