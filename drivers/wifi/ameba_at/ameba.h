@@ -74,8 +74,7 @@ extern "C" {
 #define AMEBA_MAX_SOCKETS	5
 
 /* Maximum amount that can be sent with CIPSEND and read with CIPRECVDATA */
-#define AMEBA_MTU		2048
-#define CIPRECVDATA_MAX_LEN	AMEBA_MTU
+#define AMEBA_MTU		1500
 
 #define INVALID_LINK_ID		255
 
@@ -83,7 +82,7 @@ extern "C" {
 #define MDM_RECV_MAX_BUF	CONFIG_WIFI_AMEBA_AT_MDM_RX_BUF_COUNT
 #define MDM_RECV_BUF_SIZE	CONFIG_WIFI_AMEBA_AT_MDM_RX_BUF_SIZE
 
-#define AMEBA_CMD_TIMEOUT		K_SECONDS(10)
+#define AMEBA_CMD_TIMEOUT	K_SECONDS(10)
 #define AMEBA_SCAN_TIMEOUT	K_SECONDS(10)
 #define AMEBA_CONNECT_TIMEOUT	K_SECONDS(20)
 #define AMEBA_INIT_TIMEOUT	K_SECONDS(10)
@@ -164,6 +163,7 @@ enum ameba_data_flag {
 	STA_CONNECTED  = BIT(2),
 	STA_LOCK       = BIT(3),
 	AP_ENABLED     = BIT(4),
+	NO_RESPONSE    = BIT(5),
 };
 
 /* driver data */
