@@ -305,7 +305,7 @@ MODEM_CMD_DEFINE(on_cmd_wifi_disconnected)
 
 
 // Common response commands
-static const struct modem_cmd response_cmds_common[] = {
+static const struct modem_cmd response_cmds[] = {
 	MODEM_CMD(AMEBA_CMD_OK("ATPW"), on_cmd_ok, 0U, ""),
 	MODEM_CMD(AMEBA_CMD_OK("ATWD"), on_cmd_wifi_disconnected, 0U, ""),
 };
@@ -648,7 +648,7 @@ static void ameba_iface_init(struct net_if *iface)
 }
 
 static const struct net_wifi_mgmt_offload ameba_api = {
-	.wifi_iface.init = ameba_iface_init,
+	.wifi_iface.iface_api.init = ameba_iface_init,
 	.scan		= ameba_mgmt_scan,
 	.connect	= ameba_mgmt_connect,
 	.disconnect	= ameba_mgmt_disconnect,
@@ -684,27 +684,34 @@ static int ameba_init(const struct device *dev)
 	k_thread_name_set(&data->workq.thread, "ameba_workq");
 
 	/* cmd handler */
-	data->cmd_handler_data.cmds[CMD_RESP] = response_cmds_common;
-	data->cmd_handler_data.cmds_len[CMD_RESP] = ARRAY_SIZE(response_cmds_common);
-	data->cmd_handler_data.cmds[CMD_UNSOL] = unsol_cmds;
-	data->cmd_handler_data.cmds_len[CMD_UNSOL] = ARRAY_SIZE(unsol_cmds);
-	data->cmd_handler_data.match_buf = &data->cmd_match_buf[0];
-	data->cmd_handler_data.match_buf_len = sizeof(data->cmd_match_buf);
-	data->cmd_handler_data.buf_pool = &mdm_recv_pool;
-	data->cmd_handler_data.alloc_timeout = K_NO_WAIT;
-	data->cmd_handler_data.eol = "\r\n";
+	const struct modem_cmd_handler_config cmd_handler_config = {
+		.match_buf = &data->cmd_match_buf[0],
+		.match_buf_len = sizeof(data->cmd_match_buf),
+		.buf_pool = &mdm_recv_pool,
+		.alloc_timeout = K_NO_WAIT,
+		.eol = "\r\n",
+		.user_data = NULL,
+		.response_cmds = response_cmds,
+		.response_cmds_len = ARRAY_SIZE(response_cmds),
+		.unsol_cmds = unsol_cmds,
+		.unsol_cmds_len = ARRAY_SIZE(unsol_cmds),
+	};
+
 	ret = modem_cmd_handler_init(&data->mctx.cmd_handler,
-				       &data->cmd_handler_data);
+				       &data->cmd_handler_data,
+				       &cmd_handler_config);
 	if (ret < 0) {
 		goto error;
 	}
 
 	/* modem interface */
-	data->uart = DEVICE_DT_GET(DT_INST_BUS(0));
-	data->iface_data.hw_flow_control = DT_PROP(AMEBA_BUS, hw_flow_control);
-	data->iface_data.rx_rb_buf = &data->iface_rb_buf[0];
-	data->iface_data.rx_rb_buf_len = sizeof(data->iface_rb_buf);
-	ret = modem_iface_uart_init(&data->mctx.iface, &data->iface_data, data->uart);
+	const struct modem_iface_uart_config uart_config = {
+		.rx_rb_buf = &data->iface_rb_buf[0],
+		.rx_rb_buf_len = sizeof(data->iface_rb_buf),
+		.dev = DEVICE_DT_GET(DT_INST_BUS(0)),
+		.hw_flow_control = DT_PROP(AMEBA_BUS, hw_flow_control),
+	};
+	ret = modem_iface_uart_init(&data->mctx.iface, &data->iface_data, &uart_config);
 	if (ret < 0) {
 		LOG_ERR("Ameba uart failed");
 		goto error;
