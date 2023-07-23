@@ -463,7 +463,7 @@ void ameba_recv_work(struct k_work *work)
 	int ret;
 	char cmd_buf[sizeof("ATPR=X,XXXX")];
 	snprintk(cmd_buf, sizeof(cmd_buf),
-		"ATPR=%d,1500", sock->link_id);
+		"ATPR=%d,%d", sock->link_id, AMEBA_MTU);
 
 	sock->total_recv = 0;
 	do {
