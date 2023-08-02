@@ -705,10 +705,11 @@ static int ameba_init(const struct device *dev)
 	}
 
 	/* modem interface */
+	data->uart = DEVICE_DT_GET(DT_INST_BUS(0));
 	const struct modem_iface_uart_config uart_config = {
 		.rx_rb_buf = &data->iface_rb_buf[0],
 		.rx_rb_buf_len = sizeof(data->iface_rb_buf),
-		.dev = DEVICE_DT_GET(DT_INST_BUS(0)),
+		.dev = data->uart,
 		.hw_flow_control = DT_PROP(AMEBA_BUS, hw_flow_control),
 	};
 	ret = modem_iface_uart_init(&data->mctx.iface, &data->iface_data, &uart_config);
