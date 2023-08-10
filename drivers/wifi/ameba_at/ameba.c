@@ -116,7 +116,7 @@ static int ameba_mode_switch_if_needed(struct ameba_data *data)
 	if (old_mode == new_mode) {
 		return 0;
 	}
-	LOG_DBG("%d %d", old_mode, new_mode);
+	LOG_DBG("New and old mode %d %d", old_mode, new_mode);
 
 	data->mode = new_mode;
 
@@ -608,7 +608,7 @@ static int ameba_mgmt_iface_status(const struct device *dev,
 	// struct esp_data *data = dev->data;
 
 	// memset(status, 0x0, sizeof(*status));
-	LOG_INFO("GETTING iface status\n");
+	LOG_INF("GETTING iface status\n");
 	status->state = WIFI_STATE_UNKNOWN;
 	status->band = WIFI_FREQ_BAND_UNKNOWN;
 	status->iface_mode = WIFI_MODE_UNKNOWN;

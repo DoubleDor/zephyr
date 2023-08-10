@@ -724,6 +724,7 @@ static int ameba_get(sa_family_t family,
 {
 	struct ameba_socket *sock;
 	struct ameba_data *dev;
+	struct net_context *curr_ctx = *context;
 
 	if (family != AF_INET) {
 		LOG_ERR("family incorrect");
@@ -735,6 +736,8 @@ static int ameba_get(sa_family_t family,
 	 * no way to know which interface to operate on. Therefore this driver
 	 * only supports one device node.
 	 */
+	LOG_DBG("Forcing ctx iface to 1");
+	curr_ctx->iface = 1;
 	dev = &ameba_driver_data;
 	LOG_DBG("ameba flags %x", dev->flags);
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
