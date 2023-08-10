@@ -36,7 +36,7 @@ static int ameba_bind(struct net_context *context, const struct sockaddr *addr,
 
 static int ameba_listen(struct net_context *context, int backlog)
 {
-	LOG_DBG("");
+	LOG_ERR("List was called");
 	return -ENOTSUP;
 }
 
@@ -161,6 +161,7 @@ static int ameba_connect(struct net_context *context,
 
 	sock = (struct ameba_socket *)context->offload_context;
 	dev = ameba_socket_to_dev(sock);
+	LOG_DBG("Ameba connect: %d %d", sock->link_id, sock->idx);
 
 	if(sock->link_id != 0)
 	{
@@ -201,6 +202,7 @@ static int ameba_accept(struct net_context *context,
 				 net_tcp_accept_cb_t cb, int32_t timeout,
 				 void *user_data)
 {
+	LOG_ERR("Ameba accept called");
 	return -ENOTSUP;
 }
 
@@ -491,14 +493,12 @@ static int ameba_sendto(struct net_pkt *pkt,
 			  int32_t timeout,
 			  void *user_data)
 {
-	struct net_context *context;
-	struct ameba_socket *sock;
+	struct net_context *context = pkt->context;
+	struct ameba_socket *sock = (struct ameba_socket *)context->offload_context;
 	struct ameba_data *dev;
 	int ret = 0;
 	atomic_val_t flags;
-
-	context = pkt->context;
-	sock = (struct ameba_socket *)context->offload_context;
+	LOG_DBG("starting sendto %d", sock->idx);
 	dev = ameba_socket_to_dev(sock);
 
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
@@ -545,6 +545,7 @@ static int ameba_send(struct net_pkt *pkt,
 			int32_t timeout,
 			void *user_data)
 {
+	LOG_DBG("Forwarding send to sendto");
 	return ameba_sendto(pkt, NULL, 0, cb, timeout, user_data);
 }
 
@@ -648,10 +649,12 @@ static int ameba_recv(struct net_context *context,
 	struct ameba_socket *sock = context->offload_context;
 	atomic_val_t flags;
 	int ret;
-	flags = ameba_socket_flags(sock);
-	if(!(flags & AMEBA_SOCK_CONNECTED))
-		return -ENOTCONN;
+	LOG_DBG("Start RX %d", sock->idx);
+	if (!context) {
+		return -EINVAL;
+	}
 
+	flags = ameba_socket_flags(sock);
 	if(timeout)
 		LOG_WRN("ameba_rcv has to: %d", timeout);
 
@@ -687,8 +690,13 @@ static int ameba_recv(struct net_context *context,
 static int ameba_put(struct net_context *context)
 {
 	struct ameba_socket *sock = context->offload_context;
-	ameba_socket_workq_stop_and_flush(sock);
+	LOG_DBG("Ameba put %d", sock->idx);
+	
+	if (!context) {
+		return -EINVAL;
+	}
 
+	ameba_socket_workq_stop_and_flush(sock);
 	ameba_flags_to_string(sock);
 	if (ameba_socket_flags_test_and_clear(sock, AMEBA_SOCK_CONNECTED)) {
 		ameba_socket_close(sock);
@@ -723,7 +731,7 @@ static int ameba_get(sa_family_t family,
 		   struct net_context **context)
 {
 	struct ameba_socket *sock;
-	struct ameba_data *dev;
+	struct ameba_data *dev = &ameba_driver_data;;
 	struct net_context *curr_ctx = *context;
 
 	if (family != AF_INET) {
@@ -736,9 +744,8 @@ static int ameba_get(sa_family_t family,
 	 * no way to know which interface to operate on. Therefore this driver
 	 * only supports one device node.
 	 */
-	LOG_DBG("Forcing ctx iface to 1");
-	curr_ctx->iface = 1;
-	dev = &ameba_driver_data;
+	curr_ctx->iface = net_if_get_by_iface(dev->net_iface);
+	LOG_DBG("Setting ctx iface to %d", curr_ctx->iface);
 	LOG_DBG("ameba flags %x", dev->flags);
 	if (!ameba_flags_are_set(dev, STA_CONNECTED)) {
 		LOG_ERR("AMEBA not connected");
