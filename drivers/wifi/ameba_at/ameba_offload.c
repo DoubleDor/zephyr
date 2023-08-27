@@ -461,7 +461,7 @@ void ameba_recv_work(struct k_work *work)
 	sock->total_recv = 0;
 	do {
 		if(rx_loop_count)
-			k_sleep(K_MSEC(100));
+			k_sleep(K_MSEC(50));
 		ret = ameba_cmd_send(data,
 			   cmds, ARRAY_SIZE(cmds),
 			   cmd_buf,
@@ -471,7 +471,7 @@ void ameba_recv_work(struct k_work *work)
 		if(prev_recv < sock->total_recv)
 			rx_loop_count = 0;
 		prev_recv = sock->total_recv;
-	}while (ret == 0 && rx_loop_count < 5 && (flags & AMEBA_SOCK_CONNECTED));
+	}while (ret == 0 && rx_loop_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
 
 	ameba_socket_flags_clear(sock, AMEBA_SOCK_RX_STARTED);
 	k_work_submit_to_queue(&data->workq, &data->clean_work);
