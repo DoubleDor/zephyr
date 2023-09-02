@@ -119,6 +119,7 @@ enum ameba_socket_flags {
 	AMEBA_SOCK_RX_OCCURRED = BIT(6),
 	AMEBA_SOCK_WILL_CLEAN = BIT(7),
 	AMEBA_SOCK_RX_STARTED = BIT(8),
+	AMEBA_SOCK_TX_COMPLETED = BIT(9),
 };
 
 struct ameba_socket {

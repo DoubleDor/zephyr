@@ -291,6 +291,7 @@ static int _sock_send(struct ameba_socket *sock, struct net_pkt *pkt)
 		goto out;
 	}
 
+	ameba_socket_flags_set(sock, AMEBA_SOCK_TX_COMPLETED);
 	ret = modem_cmd_handler_get_error(&dev->cmd_handler_data);
 	if (ret != 0) {
 		LOG_ERR("Failed to send data");
@@ -468,8 +469,10 @@ void ameba_recv_work(struct k_work *work)
 			   AMEBA_CMD_TIMEOUT);
 		rx_loop_count++;
 		flags = ameba_socket_flags(sock);
-		if(prev_recv < sock->total_recv)
+		if(prev_recv < sock->total_recv || (flags & AMEBA_SOCK_TX_COMPLETED)) {
 			rx_loop_count = 0;
+			ameba_socket_flags_clear(sock, AMEBA_SOCK_TX_COMPLETED);
+		}
 		prev_recv = sock->total_recv;
 	}while (ret == 0 && rx_loop_count < 5 && (flags & AMEBA_SOCK_CONNECTED));
 
@@ -663,7 +666,7 @@ static int ameba_recv(struct net_context *context,
 	  && !cb 
 	  && sock->recv_cb)
 	{
-		LOG_WRN("RX HAS NOT OCCURRED %d", sock->link_id);
+		LOG_WRN("Rx has not occurred for link %d", sock->link_id);
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
