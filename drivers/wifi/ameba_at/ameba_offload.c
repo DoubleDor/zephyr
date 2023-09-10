@@ -648,7 +648,7 @@ static int ameba_recv(struct net_context *context,
 	atomic_val_t flags;
 	int ret;
 	LOG_DBG("Start RX %d", sock->idx);
-	if (!context) {
+	if (!context) 
 		return -EINVAL;
 	LOG_DBG("Ameba rcv started");
 	flags = ameba_socket_flags(sock);
