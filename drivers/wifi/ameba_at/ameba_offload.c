@@ -286,13 +286,14 @@ static int _sock_send(struct ameba_socket *sock, struct net_pkt *pkt)
 		frag = frag->frags;
 	}
 
-	LOG_DBG("waiting for response");
+	LOG_DBG("waiting for send success");
 	ret = k_sem_take(&dev->sem_response, AMEBA_CMD_TIMEOUT);
 	if (ret < 0) {
 		LOG_ERR("No send response");
 		goto out;
 	}
 
+	ameba_socket_flags_set(sock, AMEBA_SOCK_TX_COMPLETED);
 	ret = modem_cmd_handler_get_error(&dev->cmd_handler_data);
 	if (ret != 0) {
 		LOG_ERR("Failed to send data");
@@ -303,13 +304,6 @@ out:
 	(void)modem_cmd_handler_update_cmds(&dev->cmd_handler_data,
 						NULL, 0U, false);
 	k_sem_give(&dev->cmd_handler_data.sem_tx_lock);
-	
-	// Queue RX if no issues with send
-	if(!ret)
-		ret = ameba_socket_queue_rx(sock);
-	else
-		LOG_ERR("Failed to queue rx after send");
-		
 
 	LOG_DBG("Returning with val %d", ret);
 	return ret;
@@ -453,7 +447,7 @@ void ameba_recv_work(struct k_work *work)
 	struct ameba_socket *sock = CONTAINER_OF(work, struct ameba_socket,
 						   recv_work);
 	struct ameba_data *data = ameba_socket_to_dev(sock);
-	int rx_count = 0;
+	int rx_loop_count = 0;
 	size_t prev_recv = 0;
 	atomic_val_t flags;
 
@@ -469,20 +463,24 @@ void ameba_recv_work(struct k_work *work)
 
 	sock->total_recv = 0;
 	do {
-		k_sleep(K_MSEC(50));
+		if(rx_loop_count)
+			k_sleep(K_MSEC(100));
 		ret = ameba_cmd_send(data,
 			   cmds, ARRAY_SIZE(cmds),
 			   cmd_buf,
 			   AMEBA_CMD_TIMEOUT);
-		rx_count++;
+		rx_loop_count++;
 		flags = ameba_socket_flags(sock);
-		if(prev_recv < sock->total_recv)
-			rx_count = 0;
+		if(prev_recv < sock->total_recv || (flags & AMEBA_SOCK_TX_COMPLETED)) {
+			rx_loop_count = 0;
+			ameba_socket_flags_clear(sock, AMEBA_SOCK_TX_COMPLETED);
+		}
 		prev_recv = sock->total_recv;
-	}while (ret == 0 && rx_count < 50 && (flags & AMEBA_SOCK_CONNECTED));
+	}while (ret == 0 && rx_loop_count < 5 && (flags & AMEBA_SOCK_CONNECTED));
 
+	ameba_socket_flags_clear(sock, AMEBA_SOCK_RX_STARTED);
 	k_work_submit_to_queue(&data->workq, &data->clean_work);
-	LOG_DBG("RX Done: %d %d %d %d", sock->link_id, (int)sock->total_recv, rx_count, (int)(flags & AMEBA_SOCK_CONNECTED));
+	LOG_DBG("RX Done: %d %d %d %d", sock->link_id, (int)sock->total_recv, rx_loop_count, (int)(flags & AMEBA_SOCK_CONNECTED));
 }
 
 
@@ -652,6 +650,15 @@ static int ameba_recv(struct net_context *context,
 	LOG_DBG("Start RX %d", sock->idx);
 	if (!context) {
 		return -EINVAL;
+	LOG_DBG("Ameba rcv started");
+	flags = ameba_socket_flags(sock);
+	if(!(flags & AMEBA_SOCK_CONNECTED))
+		return -ENOTCONN;
+	if(!(flags & AMEBA_SOCK_RX_STARTED)
+		&& !ameba_socket_queue_rx(sock))
+	{
+		LOG_DBG("RX queue has started");
+		ameba_socket_flags_set(sock, AMEBA_SOCK_RX_STARTED);
 	}
 
 	flags = ameba_socket_flags(sock);
@@ -664,7 +671,7 @@ static int ameba_recv(struct net_context *context,
 	  && !cb 
 	  && sock->recv_cb)
 	{
-		LOG_WRN("RX HAS NOT OCCURRED %d", sock->link_id);
+		LOG_WRN("Rx has not occurred for link %d", sock->link_id);
 		sock->recv_cb(sock->context, NULL, NULL, NULL, 0,
 						sock->recv_user_data);
 	}
