@@ -652,8 +652,6 @@ static int ameba_recv(struct net_context *context,
 		return -EINVAL;
 	LOG_DBG("Ameba rcv started");
 	flags = ameba_socket_flags(sock);
-	if(!(flags & AMEBA_SOCK_CONNECTED))
-		return -ENOTCONN;
 	if(!(flags & AMEBA_SOCK_RX_STARTED)
 		&& !ameba_socket_queue_rx(sock))
 	{
@@ -729,6 +727,7 @@ static int ameba_put(struct net_context *context)
 	k_sem_take(&sock->sem_free, K_FOREVER);
 	sock->context = NULL;
 	ameba_socket_put(sock);
+	LOG_DBG("Returning success on %s", __func__);
 	return 0;
 }
 
