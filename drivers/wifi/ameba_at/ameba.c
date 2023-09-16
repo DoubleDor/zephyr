@@ -116,7 +116,7 @@ static int ameba_mode_switch_if_needed(struct ameba_data *data)
 	if (old_mode == new_mode) {
 		return 0;
 	}
-	LOG_DBG("%d %d", old_mode, new_mode);
+	LOG_DBG("New and old mode %d %d", old_mode, new_mode);
 
 	data->mode = new_mode;
 
@@ -305,7 +305,7 @@ MODEM_CMD_DEFINE(on_cmd_wifi_disconnected)
 
 
 // Common response commands
-static const struct modem_cmd response_cmds_common[] = {
+static const struct modem_cmd response_cmds[] = {
 	MODEM_CMD(AMEBA_CMD_OK("ATPW"), on_cmd_ok, 0U, ""),
 	MODEM_CMD(AMEBA_CMD_OK("ATWD"), on_cmd_wifi_disconnected, 0U, ""),
 };
@@ -328,8 +328,8 @@ MODEM_CMD_DEFINE(on_cmd_ready)
 		return 0;
 	}
 
-	if (net_if_is_up(dev->net_iface)) {
-		net_if_down(dev->net_iface);
+	if (net_if_is_carrier_ok(dev->net_iface)) {
+		net_if_carrier_off(dev->net_iface);
 		LOG_ERR("Unexpected reset");
 	}
 
@@ -551,45 +551,10 @@ static void ameba_init_work(struct k_work *work)
 		LOG_ERR("Init failed %d", ret);
 		return;
 	}
-
-#if DT_INST_NODE_HAS_PROP(0, target_speed)
-	static const struct uart_config uart_config = {
-		.baudrate = DT_INST_PROP(0, target_speed),
-		.parity = UART_CFG_PARITY_NONE,
-		.stop_bits = UART_CFG_STOP_BITS_1,
-		.data_bits = UART_CFG_DATA_BITS_8,
-		.flow_ctrl = DT_PROP(AMEBA_BUS, hw_flow_control) ?
-			UART_CFG_FLOW_CTRL_RTS_CTS : UART_CFG_FLOW_CTRL_NONE,
-	};
-
-	ret = uart_configure(device_get_binding(DT_INST_BUS_LABEL(0)),
-			     &uart_config);
-	if (ret < 0) {
-		LOG_ERR("Baudrate change failed %d", ret);
-		return;
-	}
-
-	/* arbitrary sleep period to give ESP enough time to reconfigure */
-	k_sleep(K_MSEC(100));
-
-	ret = modem_cmd_handler_setup_cmds(&dev->mctx.iface,
-				&dev->mctx.cmd_handler,
-				setup_cmds_target_baudrate,
-				ARRAY_SIZE(setup_cmds_target_baudrate),
-				&dev->sem_response,
-				AMEBA_INIT_TIMEOUT);
-	if (ret < 0) {
-		LOG_ERR("Init failed %d", ret);
-		return;
-	}
-#endif
-
 	net_if_set_link_addr(dev->net_iface, dev->mac_addr,
 			     sizeof(dev->mac_addr), NET_LINK_ETHERNET);
-
-	LOG_DBG("AMEBA Wi-Fi ready");
-
-	net_if_up(dev->net_iface);
+	LOG_DBG("AMEBA Wi-Fi ready");;
+	net_if_carrier_on(dev->net_iface);
 }
 
 static int ameba_reset(struct ameba_data *data)
@@ -636,25 +601,71 @@ static int ameba_reset(struct ameba_data *data)
 	return ret;
 }
 
+
+static int ameba_mgmt_iface_status(const struct device *dev,
+				 struct wifi_iface_status *status)
+{
+	// struct esp_data *data = dev->data;
+
+	// memset(status, 0x0, sizeof(*status));
+	LOG_INF("GETTING iface status\n");
+	status->state = WIFI_STATE_UNKNOWN;
+	status->band = WIFI_FREQ_BAND_UNKNOWN;
+	status->iface_mode = WIFI_MODE_UNKNOWN;
+	status->link_mode = WIFI_LINK_MODE_UNKNOWN;
+	status->security = WIFI_SECURITY_TYPE_UNKNOWN;
+	status->mfp = WIFI_MFP_UNKNOWN;
+
+	// if (!net_if_is_carrier_ok(data->net_iface)) {
+	// 	status->state = WIFI_STATE_INTERFACE_DISABLED;
+	// 	return 0;
+	// }
+
+	// data->wifi_status = status;
+	// k_sem_init(&data->wifi_status_sem, 0, 1);
+
+	// k_work_submit_to_queue(&data->workq, &data->iface_status_work);
+
+	// k_sem_take(&data->wifi_status_sem, K_FOREVER);
+
+	return 0;
+}
+
+
 static void ameba_iface_init(struct net_if *iface)
 {
-	const struct device *dev = net_if_get_device(iface);
-	struct ameba_data *data = dev->data;
-	data->net_iface = iface;
+	// const struct device *dev = net_if_get_device(iface);
+	// struct ameba_data *data = dev->data;
+	// data->net_iface = iface;
 	LOG_DBG("Ameba Iface Init");
-	net_if_flag_set(iface, NET_IF_NO_AUTO_START);
+	// net_if_flag_set(iface, NET_IF_NO_AUTO_START);
+	net_if_carrier_off(iface);
 	ameba_offload_init(iface);
-	ameba_reset(data);
+	// ameba_reset(data);
 }
 
 static const struct net_wifi_mgmt_offload ameba_api = {
-	.wifi_iface.init = ameba_iface_init,
+	.wifi_iface.iface_api.init = ameba_iface_init,
 	.scan		= ameba_mgmt_scan,
 	.connect	= ameba_mgmt_connect,
 	.disconnect	= ameba_mgmt_disconnect,
 	.ap_enable	= ameba_mgmt_ap_enable,
 	.ap_disable	= ameba_mgmt_ap_disable,
+	.iface_status	= ameba_mgmt_iface_status,
 };
+#ifndef CONFIG_PM_DEVICE
+#error "PM_DEVICE NEEDDS TO BE ENABLED"
+#endif
+static int ameba_pm_action(const struct device *dev,
+			       enum pm_device_action action);
+
+PM_DEVICE_DT_INST_DEFINE(0, ameba_pm_action);
+
+static int ameba_init(const struct device *dev);
+NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, ameba_init, PM_DEVICE_DT_INST_GET(0),
+				  &ameba_driver_data, NULL,
+				  CONFIG_WIFI_INIT_PRIORITY, &ameba_api,
+				  AMEBA_MTU);
 
 static int ameba_init(const struct device *dev)
 {
@@ -684,27 +695,35 @@ static int ameba_init(const struct device *dev)
 	k_thread_name_set(&data->workq.thread, "ameba_workq");
 
 	/* cmd handler */
-	data->cmd_handler_data.cmds[CMD_RESP] = response_cmds_common;
-	data->cmd_handler_data.cmds_len[CMD_RESP] = ARRAY_SIZE(response_cmds_common);
-	data->cmd_handler_data.cmds[CMD_UNSOL] = unsol_cmds;
-	data->cmd_handler_data.cmds_len[CMD_UNSOL] = ARRAY_SIZE(unsol_cmds);
-	data->cmd_handler_data.match_buf = &data->cmd_match_buf[0];
-	data->cmd_handler_data.match_buf_len = sizeof(data->cmd_match_buf);
-	data->cmd_handler_data.buf_pool = &mdm_recv_pool;
-	data->cmd_handler_data.alloc_timeout = K_NO_WAIT;
-	data->cmd_handler_data.eol = "\r\n";
+	const struct modem_cmd_handler_config cmd_handler_config = {
+		.match_buf = &data->cmd_match_buf[0],
+		.match_buf_len = sizeof(data->cmd_match_buf),
+		.buf_pool = &mdm_recv_pool,
+		.alloc_timeout = K_NO_WAIT,
+		.eol = "\r\n",
+		.user_data = NULL,
+		.response_cmds = response_cmds,
+		.response_cmds_len = ARRAY_SIZE(response_cmds),
+		.unsol_cmds = unsol_cmds,
+		.unsol_cmds_len = ARRAY_SIZE(unsol_cmds),
+	};
+
 	ret = modem_cmd_handler_init(&data->mctx.cmd_handler,
-				       &data->cmd_handler_data);
+				       &data->cmd_handler_data,
+				       &cmd_handler_config);
 	if (ret < 0) {
 		goto error;
 	}
 
 	/* modem interface */
 	data->uart = DEVICE_DT_GET(DT_INST_BUS(0));
-	data->iface_data.hw_flow_control = DT_PROP(AMEBA_BUS, hw_flow_control);
-	data->iface_data.rx_rb_buf = &data->iface_rb_buf[0];
-	data->iface_data.rx_rb_buf_len = sizeof(data->iface_rb_buf);
-	ret = modem_iface_uart_init(&data->mctx.iface, &data->iface_data, data->uart);
+	const struct modem_iface_uart_config uart_config = {
+		.rx_rb_buf = &data->iface_rb_buf[0],
+		.rx_rb_buf_len = sizeof(data->iface_rb_buf),
+		.dev = data->uart,
+		.hw_flow_control = DT_PROP(AMEBA_BUS, hw_flow_control),
+	};
+	ret = modem_iface_uart_init(&data->mctx.iface, &data->iface_data, &uart_config);
 	if (ret < 0) {
 		LOG_ERR("Ameba uart failed");
 		goto error;
@@ -741,6 +760,8 @@ static int ameba_init(const struct device *dev)
 			K_NO_WAIT);
 	k_thread_name_set(&ameba_rx_thread, "ameba_rx");
 
+	data->net_iface = NET_IF_GET(Z_DEVICE_DT_DEV_ID(DT_DRV_INST(0)), 0);
+
 	ret = ameba_reset(data);
 	
 error:
@@ -748,7 +769,7 @@ error:
 	return ret;
 }
 
-#ifdef CONFIG_PM_DEVICE
+
 static int ameba_pm_turn_off(struct ameba_data *data )
 {
 	int ret;
@@ -759,7 +780,7 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 		data->flags = 0;
 	}
 	ret = 0;
-	while(!net_if_is_up(data->net_iface) && ret < 10)
+	while(!net_if_is_carrier_ok(data->net_iface) && ret < 10)
 	{
 		k_sleep(K_SECONDS(1));
 		ret++;
@@ -778,12 +799,12 @@ static int ameba_pm_turn_off(struct ameba_data *data )
 	// shutdown the power
 	gpio_pin_set_dt(&power_gpio, 0);
 
-	ret = net_if_down(data->net_iface);
-	if(ret)
-	{
-		LOG_ERR("Failed to take down net interface");
-		return ret;
-	}
+	net_if_carrier_off(data->net_iface);
+	// if(ret)
+	// {
+	// 	LOG_ERR("Failed to take down net interface");
+	// 	return ret;
+	// }
 	return 0;
 }
 static int ameba_pm_turn_on(struct ameba_data *data )
@@ -830,11 +851,3 @@ static int ameba_pm_action(const struct device *dev,
 
 	return ret;
 }
-#endif /* CONFIG_PM_DEVICE */
-
-PM_DEVICE_DT_INST_DEFINE(0, ameba_pm_action);
-
-NET_DEVICE_DT_INST_OFFLOAD_DEFINE(0, ameba_init, PM_DEVICE_DT_INST_GET(0),
-				  &ameba_driver_data, NULL,
-				  CONFIG_WIFI_INIT_PRIORITY, &ameba_api,
-				  AMEBA_MTU);

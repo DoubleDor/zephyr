@@ -10,6 +10,7 @@ menuconfig WIFI_AMEBA_AT
 	select NET_L2_WIFI_MGMT
 	select WIFI_OFFLOAD
 	select NET_SOCKETS_OFFLOAD
+	depends on PM_DEVICE
 	help
 	  Hijackeed from WIFI_ESP_AT
 

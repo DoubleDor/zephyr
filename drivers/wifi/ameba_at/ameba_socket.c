@@ -26,7 +26,7 @@ struct ameba_socket *ameba_socket_get(struct ameba_data *data,
 
 	for (; sock < sock_end; sock++) {
 		if (!ameba_socket_flags_test_and_set(sock, AMEBA_SOCK_IN_USE)) {
-			LOG_DBG("got socket");
+			LOG_DBG("got socket %d %d", sock->idx, sock->link_id);
 			/* here we should configure all the stuff needed */
 			sock->context = context;
 			context->offload_context = sock;
